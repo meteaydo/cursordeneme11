@@ -470,25 +470,25 @@ export default function StudentProfilePage() {
       {autoSaveStatus !== 'idle' && (
         <div className="fixed top-4 right-4 z-50 pointer-events-none">
           {autoSaveStatus === 'saving' && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-background border border-border px-3 py-1 text-xs text-muted-foreground shadow-md">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-600/50 border border-blue-400/30 px-3 py-1 text-xs text-white shadow-md backdrop-blur-sm">
               <Loader2 className="h-3 w-3 animate-spin" />
               Kaydediliyor...
             </span>
           )}
           {autoSaveStatus === 'saved' && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 border border-green-200 px-3 py-1 text-xs text-green-700 shadow-md">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-600/50 border border-blue-400/30 px-3 py-1 text-xs text-white shadow-md backdrop-blur-sm">
               <Check className="h-3 w-3" />
               Kaydedildi
             </span>
           )}
           {autoSaveStatus === 'offline-saved' && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-orange-50 border border-orange-200 px-3 py-1 text-xs text-orange-700 shadow-md">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-600/50 border border-blue-400/30 px-3 py-1 text-xs text-white shadow-md backdrop-blur-sm">
               <WifiOff className="h-3 w-3" />
               Çevrimdışı kaydedildi
             </span>
           )}
           {autoSaveStatus === 'error' && (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-red-50 border border-red-200 px-3 py-1 text-xs text-red-700 shadow-md">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-600/50 border border-blue-400/30 px-3 py-1 text-xs text-white shadow-md backdrop-blur-sm">
               <AlertCircle className="h-3 w-3" />
               Kayıt hatası
             </span>
