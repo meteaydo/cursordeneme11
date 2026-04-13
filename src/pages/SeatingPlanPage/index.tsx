@@ -1182,6 +1182,26 @@ export function SeatingPlanPage() {
                         </div>
                       </div>
                     </div>
+
+                    <button 
+                      onClick={() => {
+                        if (isSelectionMode) {
+                          setIsSelectionMode(false);
+                          setSelectedIds([]);
+                        } else {
+                          setIsSelectionMode(true);
+                        }
+                      }} 
+                      className={`shrink-0 h-10 px-3 flex items-center gap-2 rounded-2xl backdrop-blur-md shadow-lg transition-all pointer-events-auto border ${
+                        isSelectionMode 
+                          ? 'bg-primary text-white border-primary active:scale-95' 
+                          : 'bg-white/70 border-white/60 text-slate-800 hover:bg-white active:scale-95'
+                      }`} 
+                      title="Çoklu Seçim Modu"
+                    >
+                      <MousePointer2 className={`w-4 h-4 ${isSelectionMode ? 'fill-white' : ''}`} />
+                      <span className="text-[11px] font-bold tracking-wide">ÇOKLU SEÇİM</span>
+                    </button>
                   </div>
 
                 <TransformComponent wrapperClass="w-full h-full" contentClass="w-[2000px] h-[2000px]">
@@ -1238,11 +1258,6 @@ export function SeatingPlanPage() {
                                 setSelectedIds((prev) => 
                                   prev.includes(obj.id) ? prev.filter(id => id !== obj.id) : [...prev, obj.id]
                                 )
-                              }}
-                              onLongPress={() => {
-                                setIsSelectionMode(true)
-                                setSelectedIds([obj.id])
-                                if (navigator.vibrate) navigator.vibrate(50)
                               }}
                             />
                           )

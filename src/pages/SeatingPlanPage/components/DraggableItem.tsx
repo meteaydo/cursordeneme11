@@ -14,7 +14,6 @@ interface DraggableItemProps {
   isFollowerDrag?: boolean
   scale?: number
   onSelectionToggle?: () => void
-  onLongPress?: () => void
   activeApplicationId?: string | null
   score?: Score
   pcSnapSide?: 'top' | 'right' | 'bottom' | 'left'
@@ -26,7 +25,7 @@ interface DraggableItemProps {
 
 export function DraggableItem({
   item, student, isSelectionMode, isSelected, isFollowerDrag, scale: _scale = 1,
-  onSelectionToggle, onLongPress, pcSnapSide,
+  onSelectionToggle, pcSnapSide,
   activeApplicationId, score, onNumpadOpen, onDevamsizToggle, onCameraOpen, onFileUpload
 }: DraggableItemProps) {
   const [isExpanded, setIsExpanded] = useState(false)
@@ -70,9 +69,6 @@ export function DraggableItem({
 
   const handlePointerDown = (e: React.PointerEvent) => {
     clickStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() }
-    if (!isSelectionMode && item.type === 'student' && onLongPress) {
-      longPressTimer.current = setTimeout(() => { onLongPress() }, 500)
-    }
     if (!isExpanded && listeners?.onPointerDown) {
       listeners.onPointerDown(e as any)
     }
