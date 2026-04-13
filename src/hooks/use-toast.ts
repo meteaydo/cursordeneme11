@@ -4,7 +4,7 @@ export interface ToastData {
   id: string
   title?: string
   description?: string
-  variant?: 'default' | 'destructive'
+  variant?: 'default' | 'destructive' | 'blue'
 }
 
 let toastCount = 0
@@ -23,7 +23,7 @@ export function toast({ title, description, variant = 'default' }: Omit<ToastDat
   dispatch([...memoryState, { id, title, description, variant }])
   setTimeout(() => {
     dispatch(memoryState.filter((t) => t.id !== id))
-  }, 4000)
+  }, 2000)
 }
 
 export function dismiss(id: string) {

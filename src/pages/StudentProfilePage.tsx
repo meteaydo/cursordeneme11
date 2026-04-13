@@ -338,7 +338,7 @@ export default function StudentProfilePage() {
       }
 
       resetBehaviorForm()
-      toast({ title: 'Başarılı', description: 'Davranış değerlendirmesi kaydedildi.' })
+      toast({ title: 'Başarılı', description: 'Davranış değerlendirmesi kaydedildi.', variant: 'blue' })
     } catch {
       toast({ title: 'Hata', description: 'Davranış kaydedilirken bir hata oluştu.', variant: 'destructive' })
     } finally {
@@ -351,7 +351,7 @@ export default function StudentProfilePage() {
     if (!behaviorToDelete) return
     try {
       await deleteBehaviorLog(sId, behaviorToDelete)
-      toast({ title: 'Başarılı', description: 'Davranış kaydı silindi.' })
+      toast({ title: 'Başarılı', description: 'Davranış kaydı silindi.', variant: 'blue' })
     } catch {
       toast({ title: 'Hata', description: 'Kayıt silinirken bir hata oluştu.', variant: 'destructive' })
     } finally {
