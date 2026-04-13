@@ -17,7 +17,7 @@ function dispatch(action: ToastData[]) {
     listener(memoryState)
   })
 }
-
+//
 export function toast({ title, description, variant = 'default' }: Omit<ToastData, 'id'>) {
   const id = String(++toastCount)
   dispatch([...memoryState, { id, title, description, variant }])

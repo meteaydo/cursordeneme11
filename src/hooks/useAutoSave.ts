@@ -14,7 +14,7 @@ export function useAutoSave<T>(
   const pendingRef = useRef<T | null>(null)
   const isFirstMount = useRef(true)
   const saveFnRef = useRef(saveFn)
-
+  //d
   useEffect(() => {
     saveFnRef.current = saveFn
   }, [saveFn])
@@ -61,7 +61,7 @@ export function useAutoSave<T>(
         clearTimeout(timerRef.current)
       }
       if (pendingRef.current !== null) {
-        saveFnRef.current(pendingRef.current).catch(() => {})
+        saveFnRef.current(pendingRef.current).catch(() => { })
       }
     }
   }, []) // Empty dependency array -> runs only on unmount
