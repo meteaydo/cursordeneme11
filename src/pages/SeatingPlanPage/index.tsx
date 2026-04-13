@@ -34,7 +34,7 @@ const getObjectSize = (type: string) => {
     case 'tahta': return { w: 200, h: 40 }
     case 'masa': return { w: 120, h: 60 }
     case 'empty_object': return { w: 60, h: 60 }
-    case 'pc_label': return { w: 32, h: 32 }
+    case 'pc_label': return { w: 60, h: 34 }
     default: return { w: 70, h: 70 } // student, empty_desk
   }
 }
@@ -121,6 +121,60 @@ export function SeatingPlanPage() {
   // Zoom ölçeğine göre hareketleri düzenleyen dnd modifier
   // useRef kullanıyoruz — closure stale'ini önler, modifier her zaman güncel scale'i okur
   const scaleRef = useRef(1);
+  // Custom wheel zoom için refs
+  const transformUtilsRef = useRef<any>(null);
+  const canvasContainerRef = useRef<HTMLDivElement>(null);
+  const activeIdRef = useRef<string | null>(null);
+
+  // activeId değiştiğinde ref'i güncelle (wheel closure'da stale olmasın)
+  useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
+
+  // Custom native wheel handler — milimetrik hassasiyette, cursor merkezli zoom
+  useEffect(() => {
+    const el = canvasContainerRef.current;
+    if (!el) return;
+
+    const handleWheel = (e: WheelEvent) => {
+      // Sürükleme varsa zoom'u engelle
+      if (activeIdRef.current !== null) return;
+      e.preventDefault();
+
+      const utils = transformUtilsRef.current;
+      if (!utils) return;
+
+      const { state } = utils;
+      const currentScale: number = state.scale;
+      const currentTx: number = state.positionX;
+      const currentTy: number = state.positionY;
+
+      // Her notch için %3 ölçek değişimi (çok hassas)
+      const ZOOM_FACTOR = 0.03;
+      // deltaY normalize et — trackpad çok küçük değerler üretir, mouse 100+ üretir
+      // Clamp ile aşırı hız önlenir (tek scroll max 1 notch sayılır)
+      const normalizedDelta = Math.sign(e.deltaY);
+      const factor = 1 - normalizedDelta * ZOOM_FACTOR;
+
+      const newScale = Math.max(0.1, Math.min(3, currentScale * factor));
+      if (newScale === currentScale) return;
+
+      // Zoom'u mouse cursor pozisyonuna göre ortala
+      const rect = el.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      const ratio = newScale / currentScale;
+      const newTx = mouseX - (mouseX - currentTx) * ratio;
+      const newTy = mouseY - (mouseY - currentTy) * ratio;
+
+      scaleRef.current = newScale;
+      utils.setTransform(newTx, newTy, newScale, 0);
+    };
+
+    el.addEventListener('wheel', handleWheel, { passive: false });
+    return () => el.removeEventListener('wheel', handleWheel);
+  // courseLoading/studentsLoading değişince canvas div DOM'a girer, listener o zaman eklenir
+  }, [courseLoading, studentsLoading]);
+
 
   const getSnapPosition = (activeId: string, unscaledX: number, unscaledY: number, currentObjects: SeatObject[]) => {
     const activeObj = currentObjects.find(o => `canvas_${o.id}` === activeId);
@@ -636,8 +690,8 @@ export function SeatingPlanPage() {
     labelX: number, labelY: number,
     currentObjects: SeatObject[]
   ): PcSnapTarget => {
-    const labelCx = labelX + 25;
-    const labelCy = labelY + 13;
+    const labelCx = labelX + 30;  // 60 / 2
+    const labelCy = labelY + 17;  // 34 / 2
     let closest: { objId: string; dist: number; side: PcSnapSide } | null = null;
 
     for (const obj of currentObjects) {
@@ -674,8 +728,8 @@ export function SeatingPlanPage() {
     for (const obj of currentObjects) {
       if (obj.type !== 'pc_label') continue;
       
-      const labelCx = obj.x + 25;
-      const labelCy = obj.y + 13;
+      const labelCx = obj.x + 30;  // 60 / 2
+      const labelCy = obj.y + 17;  // 34 / 2
       const dist = Math.sqrt((studentCx - labelCx) ** 2 + (studentCy - labelCy) ** 2);
       
       if (dist > PC_HOVER_RADIUS) continue;
@@ -755,16 +809,22 @@ export function SeatingPlanPage() {
 
   // Kenar snap offset hesabı: pc_label'ı öğrenci kartının hangi kenarına yerleştireceğiz
   const getPcSnapPosition = (studentObj: SeatObject, side: PcSnapSide): { x: number; y: number } => {
-    const CARD_SIZE = 70, PC_SIZE = 32;
+    const CARD_W = 70, CARD_H = 70;
+    const PC_W = 60, PC_H = 34;
+    const GAP = 2; // kart kenarından boşluk (px)
     switch (side) {
       case 'top':
-        return { x: studentObj.x + (CARD_SIZE - PC_SIZE) / 2, y: studentObj.y - PC_SIZE - 4 };
+        // Yatayda ortala, kartın üstüne 2px boşlukla yerleştir
+        return { x: studentObj.x + (CARD_W - PC_W) / 2, y: studentObj.y - PC_H - GAP };
       case 'right':
-        return { x: studentObj.x + CARD_SIZE + 4, y: studentObj.y + (CARD_SIZE - PC_SIZE) / 2 };
+        // Dikeyde ortala, kartın sağına 2px boşlukla yerleştir
+        return { x: studentObj.x + CARD_W + GAP, y: studentObj.y + (CARD_H - PC_H) / 2 };
       case 'bottom':
-        return { x: studentObj.x + (CARD_SIZE - PC_SIZE) / 2, y: studentObj.y + CARD_SIZE + 4 };
+        // Yatayda ortala, kartın altına 2px boşlukla yerleştir
+        return { x: studentObj.x + (CARD_W - PC_W) / 2, y: studentObj.y + CARD_H + GAP };
       case 'left':
-        return { x: studentObj.x - PC_SIZE - 4, y: studentObj.y + (CARD_SIZE - PC_SIZE) / 2 };
+        // Dikeyde ortala, kartın soluna 2px boşlukla yerleştir
+        return { x: studentObj.x - PC_W - GAP, y: studentObj.y + (CARD_H - PC_H) / 2 };
     }
   };
 
@@ -782,15 +842,15 @@ export function SeatingPlanPage() {
       const studentObj = studentMap.get(obj.linkedStudentId);
       if (!studentObj) return obj;
 
-      const LABEL_SIZE = 32;
-      const labelCx = obj.x + LABEL_SIZE / 2;
-      const labelCy = obj.y + LABEL_SIZE / 2;
+      const PC_W = 60, PC_H = 34;
+      const labelCx = obj.x + PC_W / 2;
+      const labelCy = obj.y + PC_H / 2;
 
       let bestSide: PcSnapSide = 'top';
       let bestDist = Infinity;
       for (const side of SIDES) {
         const pos = getPcSnapPosition(studentObj, side);
-        const d = Math.hypot(pos.x + LABEL_SIZE / 2 - labelCx, pos.y + LABEL_SIZE / 2 - labelCy);
+        const d = Math.hypot(pos.x + PC_W / 2 - labelCx, pos.y + PC_H / 2 - labelCy);
         if (d < bestDist) { bestDist = d; bestSide = side; }
       }
 
@@ -998,7 +1058,7 @@ export function SeatingPlanPage() {
     <Layout title={`${course?.dersAdi} - Oturma Planı`} showBack showLogout={false}>
       <div className="absolute inset-0 top-14 bg-[#e5e7eb] overflow-hidden flex flex-col">
         {/* Canvas Alanı */}
-        <div className="flex-1 relative h-full w-full bg-[#cbd5e1]/40 touch-none">
+        <div ref={canvasContainerRef} className="flex-1 relative h-full w-full bg-[#cbd5e1]/40 touch-none">
           <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 px-4 py-2 bg-slate-900/60 text-white text-[11px] rounded-full backdrop-blur-md font-medium flex items-center gap-2 pointer-events-none shadow-lg transition-all">
             <MousePointer2 className="w-3 h-3" /> Çift parmakla yakınlaştır, objeleri sürükle
           </div>
@@ -1028,10 +1088,12 @@ export function SeatingPlanPage() {
             initialPositionY={0}
             centerOnInit={false}
             limitToBounds={false}
+            wheel={{ disabled: true }}
             panning={{ disabled: activeId !== null, excluded: ['drv-draggable'] }}
             onTransform={(ref: any) => { scaleRef.current = ref.state.scale; }}
           >
             {(utils: any) => {
+              transformUtilsRef.current = utils;
               const calculateClusterCenter = () => {
                 // Yalnızca 'student' tipindeki öğrenci objelerini baz al
                 const studentsOnly = objects.filter(o => o.type === 'student');
