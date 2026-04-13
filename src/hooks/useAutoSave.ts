@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react'
 export type AutoSaveStatus = 'idle' | 'saving' | 'saved' | 'offline-saved' | 'error'
 
 const DEBOUNCE_MS = 800
-const SAVED_DISPLAY_MS = 1000
+const SAVED_DISPLAY_MS = 2000
 
 export function useAutoSave<T>(
   data: T | null,
