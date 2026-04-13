@@ -562,50 +562,46 @@ export default function CourseDetailPage() {
     <Layout title={pageTitle} showBack backTo="/courses" showLogout={false}>
       <div className="space-y-4">
         {/* Applications Section */}
-        <div ref={stickyHeaderRef} className="sticky top-14 z-30 -mx-4 px-4 py-2 -mt-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b mb-4 shadow-sm">
-          <div className="relative flex items-center justify-center mb-2 min-h-[32px] border-b border-border/40 pb-1">
-            <h2 className="font-semibold text-sm text-muted-foreground uppercase tracking-wide">Uygulamalar</h2>
+        <div ref={stickyHeaderRef} className="sticky top-14 z-30 -mx-4 px-4 py-2 -mt-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b mb-2 shadow-sm">
+          <div className="flex items-center gap-2">
+            {appsLoading ? (
+              <div className="flex-1 flex justify-center py-2"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+            ) : applications.length === 0 ? (
+              <div className="flex-1 py-4 text-center text-muted-foreground text-xs italic border border-dashed rounded-lg bg-white/50">
+                Henüz uygulama eklenmedi.
+              </div>
+            ) : (
+              <div className="flex-1 flex gap-2 overflow-x-auto pb-1">
+                {applications.map((app) => (
+                  <button
+                    key={app.id}
+                    onClick={() => handleAppSelect(app)}
+                    onContextMenu={(e) => handleAppContextMenu(e, app)}
+                    className={`shrink-0 text-left px-3 py-2 rounded-lg border text-sm transition-all select-none active:scale-110 active:animate-pulse active:z-50 active:shadow-lg ${
+                      selectedApp?.id === app.id
+                        ? 'bg-primary text-primary-foreground border-primary'
+                        : 'bg-white border-border hover:border-primary/50'
+                    }`}
+                  >
+                    <div className="font-medium">{app.ad}</div>
+                    <div className={`text-xs mt-0.5 ${selectedApp?.id === app.id ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
+                      {format(new Date(app.tarih + 'T12:00:00'), 'd MMM yyyy', { locale: tr })}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
             <button
               onClick={() => setAddAppOpen(true)}
-              className="absolute right-0 w-10 h-10 rounded-full transition-all duration-200 z-30 bg-gradient-to-b from-blue-400 to-blue-600 text-white border-t border-blue-300/50 shadow-[inset_0_-4px_6px_rgba(0,0,0,0.3),inset_0_2px_4px_rgba(255,255,255,0.3),0_6px_12px_rgba(37,99,235,0.4)] hover:from-blue-400 hover:to-blue-500 hover:-translate-y-0.5 active:translate-y-1 active:shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),0_2px_4px_rgba(37,99,235,0.4)] active:from-blue-500 active:to-blue-600 flex items-center justify-center"
+              className="shrink-0 w-10 h-10 rounded-full transition-all duration-200 z-30 bg-gradient-to-b from-blue-400 to-blue-600 text-white border-t border-blue-300/50 shadow-[inset_0_-4px_6px_rgba(0,0,0,0.3),inset_0_2px_4px_rgba(255,255,255,0.3),0_6px_12px_rgba(37,99,235,0.4)] hover:from-blue-400 hover:to-blue-500 hover:-translate-y-0.5 active:translate-y-1 active:shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),0_2px_4px_rgba(37,99,235,0.4)] active:from-blue-500 active:to-blue-600 flex items-center justify-center"
               aria-label="Uygulama Ekle"
             >
               <Plus size={24} strokeWidth={2.5} className="drop-shadow-md" />
             </button>
           </div>
 
-          {appsLoading ? (
-            <div className="flex justify-center py-4"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
-          ) : applications.length === 0 ? (
-            <Card className="border-dashed">
-              <CardContent className="py-4 text-center text-muted-foreground text-xs italic">
-                Henüz uygulama eklenmedi.
-              </CardContent>
-            </Card>
-          ) : (
-            <div className="flex gap-2 overflow-x-auto pb-1 mt-6">
-              {applications.map((app) => (
-                <button
-                  key={app.id}
-                  onClick={() => handleAppSelect(app)}
-                  onContextMenu={(e) => handleAppContextMenu(e, app)}
-                  className={`shrink-0 text-left px-3 py-2 rounded-lg border text-sm transition-all select-none active:scale-110 active:animate-pulse active:z-50 active:shadow-lg ${
-                    selectedApp?.id === app.id
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-white border-border hover:border-primary/50'
-                  }`}
-                >
-                  <div className="font-medium">{app.ad}</div>
-                  <div className={`text-xs mt-0.5 ${selectedApp?.id === app.id ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
-                    {format(new Date(app.tarih + 'T12:00:00'), 'd MMM yyyy', { locale: tr })}
-                  </div>
-                </button>
-              ))}
-            </div>
-          )}
-
           {/* Student Action Buttons (Sticky Row) */}
-          <div className="flex items-center gap-2 mt-4 pt-4 border-t border-border/40">
+          <div className="flex items-center gap-2 mt-1.5 pt-2 border-t border-border/40">
              <button
                onClick={() => navigate(`/courses/${id}/seating`, { 
                  state: selectedApp ? { applicationId: selectedApp.id, applicationAd: selectedApp.ad } : undefined 
