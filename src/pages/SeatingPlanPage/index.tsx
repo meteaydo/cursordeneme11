@@ -147,8 +147,8 @@ export function SeatingPlanPage() {
       const currentTx: number = state.positionX;
       const currentTy: number = state.positionY;
 
-      // Her notch için %3 ölçek değişimi (çok hassas)
-      const ZOOM_FACTOR = 0.03;
+      // Her notch için %10 ölçek değişimi
+      const ZOOM_FACTOR = 0.1;
       // deltaY normalize et — trackpad çok küçük değerler üretir, mouse 100+ üretir
       // Clamp ile aşırı hız önlenir (tek scroll max 1 notch sayılır)
       const normalizedDelta = Math.sign(e.deltaY);
@@ -404,8 +404,8 @@ export function SeatingPlanPage() {
               id: uuidv4(),
               type: 'student',
               studentId: s.id,
-              x: 200 + (idx * 80),
-              y: 100,
+              x: 1000 - (newStudents.length * 40) + (idx * 80),
+              y: 1000,
             });
           });
 
@@ -473,8 +473,8 @@ export function SeatingPlanPage() {
     pushHistory();
     const newObjects: SeatObject[] = [];
 
-    const baseX = 200;
-    const baseY = 200; 
+    const baseX = 635;
+    const baseY = 750; 
 
     // En ön sıra y ekseni koordinatı
     const frontRowY = baseY + 4 * 90; 
@@ -528,8 +528,8 @@ export function SeatingPlanPage() {
   const applyLabLayout = () => {
     pushHistory();
     const newObjects: SeatObject[] = [];
-    const baseX = 200;
-    const baseY = 200;
+    const baseX = 750;
+    const baseY = 650;
     const size = 72;
 
     // Görsele göre Tahta alt kenarda tam ortada (10 satırlık düzene göre)
@@ -658,12 +658,12 @@ export function SeatingPlanPage() {
 
   const addEmptyDesk = () => {
     pushHistory();
-    setObjects((prev) => [...prev, { id: uuidv4(), type: 'empty_desk', x: 100, y: 300 }])
+    setObjects((prev) => [...prev, { id: uuidv4(), type: 'empty_desk', x: 965, y: 965 }])
   }
 
   const addEmptyObject = () => {
     pushHistory();
-    setObjects((prev) => [...prev, { id: uuidv4(), type: 'empty_object', x: 100, y: 400 }])
+    setObjects((prev) => [...prev, { id: uuidv4(), type: 'empty_object', x: 970, y: 1070 }])
   }
 
   // DND Handlers
