@@ -759,9 +759,6 @@ export function SeatingPlanPage() {
     }
   }
 
-  const handleReset = () => {
-    handleResetLayout(layoutMode);
-  }
 
   const clearAll = () => {
     if (confirm('Tüm nesneleri (etiketler dahil) temizlemek istiyor musunuz?')) {

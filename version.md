@@ -2,3 +2,4 @@ v1.0 14.04.2026 12:25
 v1.1 14.04.2026 12:38 - Onaysız otomatik PWA güncellemeleri aktif edildi
 v1.2 14.04.2026 13:34  - Zoom iyilestirildi
 v1.3 14.04.2026 14:05 - Sınıf ve lab düzeni kaydetme duzeltildi
+v1.3.1 14.04.2026 14:10 - Sınıf ve lab düzeni kaydetme duzeltildi
