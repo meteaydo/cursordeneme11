@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { collection, query, onSnapshot } from 'firebase/firestore'
-import { db } from '@/lib/firebase'
+import { db, auth } from '@/lib/firebase'
 import type { Course } from '@/types'
 
 export function useCourseStats(courses: Course[]) {
@@ -8,7 +8,7 @@ export function useCourseStats(courses: Course[]) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
-    if (!courses || courses.length === 0) {
+    if (!courses || courses.length === 0 || !auth.currentUser) {
       setLoading(false)
       return
     }
