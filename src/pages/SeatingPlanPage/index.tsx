@@ -142,8 +142,18 @@ export function SeatingPlanPage() {
   type PcSnapTarget = { studentObjId: string; side: PcSnapSide } | null
   const pcSnapTargetRef = useRef<PcSnapTarget>(null)
   const [pcSnapTarget, setPcSnapTarget] = useState<PcSnapTarget>(null)
+  
+  // Layout states
+  const [layoutMode, setLayoutMode] = useState<'classroom' | 'lab'>('classroom')
+  const [layouts, setLayouts] = useState<{ classroom: SeatObject[], lab: SeatObject[] }>({
+    classroom: [],
+    lab: []
+  })
+
   // Persist debounce timer
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Always-current objects ref — stale closure'u önler
+  const objectsRef = useRef<SeatObject[]>(objects)
   
   const toolbarRef = useRef<HTMLDivElement>(null)
 
@@ -328,20 +338,71 @@ export function SeatingPlanPage() {
     toast({ title: 'Geri Alındı', description: 'Bir önceki düzene dönüldü.' });
   }
 
-  const persistPlan = (newObjects: SeatObject[]) => {
+  const persistPlan = (newObjects: SeatObject[], mode: 'classroom' | 'lab' = layoutMode) => {
     if (!courseId) return;
-    updateCourse(courseId, { seatingPlan: JSON.stringify(newObjects) })
+
+    // Update the layouts state for the current mode
+    const updatedLayouts = { ...layouts, [mode]: newObjects };
+    setLayouts(updatedLayouts);
+
+    const payload = {
+      activeMode: mode,
+      classroom: updatedLayouts.classroom,
+      lab: updatedLayouts.lab
+    };
+
+    updateCourse(courseId, { seatingPlan: JSON.stringify(payload) })
       .then(() => console.log('Plan persisted'))
       .catch((err) => console.error('Plan persist error:', err));
   }
 
+  const switchMode = (newMode: 'classroom' | 'lab') => {
+    if (newMode === layoutMode) return;
+    
+    // Save current objects to current mode's bucket in layouts state
+    // We update layouts state and objects state
+    const currentObjects = [...objects];
+    const newLayouts = { ...layouts, [layoutMode]: currentObjects };
+    setLayouts(newLayouts);
+    
+    // Switch to new mode and load its objects
+    setLayoutMode(newMode);
+    
+    let targetObjects = newLayouts[newMode];
+    
+    // If target layout is empty, maybe it's the first time?
+    if (targetObjects.length === 0) {
+      if (newMode === 'classroom') {
+        const generated = generateClassroomLayout();
+        setObjects(generated);
+        persistPlan(generated, 'classroom');
+      } else {
+        const generated = generateLabLayout();
+        setObjects(generated);
+        persistPlan(generated, 'lab');
+      }
+    } else {
+      setObjects(targetObjects);
+      // Persist the mode change
+      persistPlan(targetObjects, newMode);
+    }
+  }
+
+  // Ref'i her render'da güncelle — timeout callback'i her zaman en son state'i okur
+  useEffect(() => {
+    objectsRef.current = objects;
+  });
+
   // Auto-save effect
   useEffect(() => {
-    if (!initDone || objects.length === 0) return;
+    if (!initDone) return;
     
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
     persistTimerRef.current = setTimeout(() => {
-      persistPlan(objects);
+      // objectsRef.current: Her zaman en güncel objects state'ini içerir (stale-closure yok)
+      const currentObjects = objectsRef.current;
+      if (currentObjects.length === 0) return;
+      persistPlan(currentObjects);
     }, 1000); // 1 saniye debounce
 
     return () => {
@@ -453,22 +514,43 @@ export function SeatingPlanPage() {
     if (!initDone && course && students.length > 0) {
       if (course.seatingPlan) {
         try {
-          const parsed = JSON.parse(course.seatingPlan) as SeatObject[]
-          let rawObjects = [...parsed];
+          const parsed = JSON.parse(course.seatingPlan)
+          let activeMode: 'classroom' | 'lab' = 'classroom'
+          let classroom: SeatObject[] = []
+          let lab: SeatObject[] = []
+
+          // Handle legacy array format vs new object format
+          if (Array.isArray(parsed)) {
+            classroom = parsed
+            activeMode = 'classroom'
+          } else {
+            activeMode = parsed.activeMode || 'classroom'
+            classroom = parsed.classroom || []
+            lab = parsed.lab || []
+          }
+
+          setLayouts({ classroom, lab })
+          setLayoutMode(activeMode)
+
+          let rawObjects = activeMode === 'lab' ? [...lab] : [...classroom];
           
+          if (rawObjects.length === 0) {
+            if (activeMode === 'classroom') rawObjects = generateClassroomLayout();
+            else rawObjects = generateLabLayout();
+          }
+
           // --- TEKİLLEŞTİRME (De-duplication) ---
-          // Aynı studentId veya linkedStudentId'ye sahip mükerrer nesneleri temizle
           const seenStudentIds = new Set<string>();
           const seenLinkedIds = new Set<string>();
           const uniqueObjects: SeatObject[] = [];
 
           rawObjects.forEach(obj => {
             if (obj.type === 'student' && obj.studentId) {
-              if (seenStudentIds.has(obj.studentId)) return; // Tekrar edeni atla
+              if (seenStudentIds.has(obj.studentId)) return;
               seenStudentIds.add(obj.studentId);
             }
             if (obj.type === 'pc_label' && obj.linkedStudentId) {
-              if (seenLinkedIds.has(obj.linkedStudentId)) return; // Tekrar edeni atla
+              if (seenLinkedIds.has(obj.linkedStudentId)) return;
               seenLinkedIds.add(obj.linkedStudentId);
             }
             uniqueObjects.push(obj);
@@ -489,15 +571,20 @@ export function SeatingPlanPage() {
 
           const snapped = snapPcLabelsToEdges(finalObjects);
           setObjects(snapped);
+          
           const needsPersist = newStudents.length > 0 ||
             snapped.some((o, i) => o.x !== finalObjects[i].x || o.y !== finalObjects[i].y);
-          if (needsPersist) persistPlan(snapped);
+          if (needsPersist) persistPlan(snapped, activeMode);
 
         } catch {
-          applyClassroomLayout()
+          const generated = generateClassroomLayout();
+          setObjects(generated);
+          persistPlan(generated, 'classroom');
         }
       } else {
-        applyClassroomLayout()
+        const generated = generateClassroomLayout();
+        setObjects(generated);
+        persistPlan(generated, 'classroom');
       }
       setInitDone(true);
     }
@@ -547,48 +634,31 @@ export function SeatingPlanPage() {
   }, [students, initDone]);
 
 
-  const applyClassroomLayout = () => {
-    pushHistory();
+  const generateClassroomLayout = () => {
     const newObjects: SeatObject[] = [];
-
     const baseX = 635;
     const baseY = 750; 
-
-    // En ön sıra y ekseni koordinatı
     const frontRowY = baseY + 4 * 90; 
-    // Arada en az 1 öğrenci boyu (70px + tolerans) olacak şelikde önüne koy
     const frontY = frontRowY + 140;
-
-    // En sağ sütun koordinatı: pairIndex(3) * 182 + isRight(1) * 72
     const rightmostStudentX = baseX + 3 * 182 + 72;
-    // Masa: Sağdaki öğrenci sütunun tam merkez hizasına
-    const masaX = rightmostStudentX + 35 - 60; // 35: öğrenci yarıçapı, 60: masa yarıçapı
-
-    // Tahta: Masanın solunda, arada 2 öğrenci (140px) kadar boşluk
-    const tahtaX = masaX - 140 - 200; // 200: tahta genişliği
+    const masaX = rightmostStudentX + 35 - 60; 
+    const tahtaX = masaX - 140 - 200; 
 
     newObjects.push({ id: uuidv4(), type: 'tahta', x: tahtaX, y: frontY });
     newObjects.push({ id: uuidv4(), type: 'masa', x: masaX, y: frontY });
 
     students.forEach((s, index) => {
-      // 1. öğrenci sağ alt, 2. yanında. 3. bir arka sıra kenar.
-      // Sütun gruplarında geri geri sağdan sola dolum:
-      let pairBlock = Math.floor(index / 10); // Her 2'li sütunda 5 satırdan 10 öğrenci
+      let pairBlock = Math.floor(index / 10);
       let pairIndex = 3 - pairBlock; 
-      
-      // Kapasite(40) aşılırsa, sol sütun blokunda ekstra arka sıralar oluştur
       let inBlockIndex = index % 10;
-      let yIndex = 4 - Math.floor(inBlockIndex / 2); // 4 en ön, 0 en arka
+      let yIndex = 4 - Math.floor(inBlockIndex / 2);
       if (pairIndex < 0) {
         pairIndex = 0; 
-        yIndex = -1 - Math.floor((index - 40) / 2); // Sola yaslanıp daha arkaya eklenir
+        yIndex = -1 - Math.floor((index - 40) / 2);
       }
-
-      const isRightInPair = 1 - (inBlockIndex % 2); // İlk sağa, sonra sola
-
+      const isRightInPair = 1 - (inBlockIndex % 2);
       const rx = baseX + pairIndex * 182 + isRightInPair * 72;
       const ry = baseY + yIndex * 90;
-
       newObjects.push({
         id: uuidv4(),
         type: 'student',
@@ -597,49 +667,29 @@ export function SeatingPlanPage() {
         y: ry,
       });
     });
-    setObjects(newObjects);
-    persistPlan(newObjects);
-    setLayoutVersion(v => v + 1);
-    toast({ title: 'Düzen Değişti', description: 'Sınıf düzenine geçildi ve otomatik kaydedildi.' });
+    return newObjects;
   }
 
-  const applyLabLayout = () => {
-    pushHistory();
+  const generateLabLayout = () => {
     const newObjects: SeatObject[] = [];
     const baseX = 750;
     const baseY = 650;
     const size = 72;
-
-    // Görsele göre Tahta alt kenarda tam ortada (10 satırlık düzene göre)
     const centerLab = baseX + 3.5 * size;
     newObjects.push({ id: uuidv4(), type: 'tahta', x: centerLab - 100, y: baseY + 10 * size + 40 });
     newObjects.push({ id: uuidv4(), type: 'masa', x: centerLab + 150, y: baseY + 10 * size + 40 });
 
     const spots: {x: number, y: number}[] = [];
-
-    // LAB DÜZENİ: Sol 9, Üst 6 (köşeler hariç), Sağ 9 → Toplam 24
-    // 1. Sol sütun: En alttan yukarıya (9 kare, row 9→1)
-    for (let row = 9; row >= 1; row--) {
-      spots.push({ x: baseX, y: baseY + row * size });
-    }
-    // 2. Üst sıra: col 1'den col 6'ya (6 kare, köşeler sol/sağa dahil)
-    for (let col = 1; col <= 6; col++) {
-      spots.push({ x: baseX + col * size, y: baseY });
-    }
-    // 3. Sağ sütun: Yukarıdan aşağıya (9 kare, row 1→9)
-    for (let row = 1; row <= 9; row++) {
-      spots.push({ x: baseX + 7 * size, y: baseY + row * size });
-    }
-
-    // 4. Orta Ada: Her zaman 6 spot (2 sütun × 3 satır), bitişik, her zaman görünür
-    const islandX1 = baseX + 3 * size;  // Sol ada sütunu (ortaya yakın)
-    const islandX2 = baseX + 4 * size;  // Sağ ada sütunu (bitişik)
+    for (let row = 9; row >= 1; row--) spots.push({ x: baseX, y: baseY + row * size });
+    for (let col = 1; col <= 6; col++) spots.push({ x: baseX + col * size, y: baseY });
+    for (let row = 1; row <= 9; row++) spots.push({ x: baseX + 7 * size, y: baseY + row * size });
+    const islandX1 = baseX + 3 * size;
+    const islandX2 = baseX + 4 * size;
     for (let r = 0; r < 3; r++) {
-      spots.push({ x: islandX1, y: baseY + (4 + r) * size }); // Sol ada — bitişik satırlar
-      spots.push({ x: islandX2, y: baseY + (4 + r) * size }); // Sağ ada — bitişik satırlar
+      spots.push({ x: islandX1, y: baseY + (4 + r) * size });
+      spots.push({ x: islandX2, y: baseY + (4 + r) * size });
     }
 
-    // Öğrencileri öğrenci no'suna göre sırala (küçük no → 1. PC)
     const sortedStudents = [...students].sort((a, b) => {
       const numA = parseInt(a.no);
       const numB = parseInt(b.no);
@@ -647,75 +697,60 @@ export function SeatingPlanPage() {
       return a.no.localeCompare(b.no);
     });
 
-    // Tüm spotları (öğrenci + boş sıralar) sırayla işle
     for (let i = 0; i < spots.length; i++) {
       const spot = spots[i];
       const pcNo = String(i + 1);
-      
-      // Pozisyona göre etiketin hangi kenarda duracağını belirle
       let side: PcSnapSide = 'top';
-      if (i < 9) side = 'left';          // Sol sütun
-      else if (i < 15) side = 'top';     // Üst sıra
-      else if (i < 24) side = 'right';   // Sağ sütun
-      else {
-        // Orta Ada: 24, 26, 28 sol; 25, 27, 29 sağ sütun
-        side = (i % 2 === 0) ? 'left' : 'right';
-      }
+      if (i < 9) side = 'left';
+      else if (i < 15) side = 'top';
+      else if (i < 24) side = 'right';
+      else side = (i % 2 === 0) ? 'left' : 'right';
 
-      // Yardımcı fonksiyonu kullanarak koordinatları hesapla
       const tempStudentObj = { x: spot.x, y: spot.y, type: 'student' } as SeatObject;
       const pcPos = getPcSnapPosition(tempStudentObj, side);
 
-      // PC etiketi (tüm spotlar için)
       newObjects.push({
         id: uuidv4(),
         type: 'pc_label',
         pcNo,
-        linkedStudentId: i < sortedStudents.length ? sortedStudents[i].id : '', // Boş sıralar için boş string
+        linkedStudentId: i < sortedStudents.length ? sortedStudents[i].id : '',
         x: pcPos.x,
         y: pcPos.y,
       });
 
-      // Bu spot için öğrenci var mı?
       if (i < sortedStudents.length) {
         const s = sortedStudents[i];
-        
-        // Öğrenci kartı
-        newObjects.push({
-          id: uuidv4(),
-          type: 'student',
-          studentId: s.id,
-          x: spot.x,
-          y: spot.y,
-        });
-
+        newObjects.push({ id: uuidv4(), type: 'student', studentId: s.id, x: spot.x, y: spot.y });
         updateStudent(s.id, { pcNo });
       } else {
-        // Boş sıra
-        newObjects.push({
-          id: uuidv4(),
-          type: 'empty_desk',
-          x: spot.x,
-          y: spot.y,
-        });
+        newObjects.push({ id: uuidv4(), type: 'empty_desk', x: spot.x, y: spot.y });
       }
     }
+    return newObjects;
+  }
 
-    setObjects(newObjects);
-    persistPlan(newObjects);
-    setLayoutVersion(v => v + 1);
+  const handleResetLayout = (mode: 'classroom' | 'lab') => {
+    const msg = mode === 'classroom' ? 'Sınıf düzeni varsayılana sıfırlanacak. Emin misiniz?' : 'Lab düzeni varsayılana sıfırlanacak. Emin misiniz?';
+    if (!confirm(msg)) return;
     
-    // Defer toast to avoid 'update while rendering' warning
-    setTimeout(() => {
-      toast({ title: 'Düzen Değişti', description: 'Lab düzenine geçildi ve PC numaraları atandı.' });
-    }, 0);
+    pushHistory();
+    const generated = mode === 'classroom' ? generateClassroomLayout() : generateLabLayout();
+    
+    if (mode === layoutMode) {
+      setObjects(generated);
+    }
+    
+    persistPlan(generated, mode);
+    setLayoutVersion(v => v + 1);
+    toast({ title: 'Düzen Sıfırlandı', description: 'Seçili düzen varsayılan ayarlara döndürüldü.' });
   }
 
   const handleSave = async () => {
     if (!courseId) return
     setSaving(true)
     try {
-      await updateCourse(courseId, { seatingPlan: JSON.stringify(objects) })
+      // Save current objects to current mode
+      persistPlan(objects, layoutMode);
       toast({ title: 'Başarılı', description: 'Oturma planı kaydedildi.' })
     } catch {
       toast({ title: 'Hata', description: 'Kaydedilirken bir hata oluştu.', variant: 'destructive' })
@@ -725,9 +760,7 @@ export function SeatingPlanPage() {
   }
 
   const handleReset = () => {
-    if (confirm('Tüm oturma planını sıfırlamak ve varsayılan düzene dönmek istediğinize emin misiniz?')) {
-      applyClassroomLayout()
-    }
+    handleResetLayout(layoutMode);
   }
 
   const clearAll = () => {
@@ -1108,25 +1141,25 @@ export function SeatingPlanPage() {
 
                <div className="w-full h-px bg-slate-100 my-0.5" />
 
-               <Button variant="ghost" onClick={applyLabLayout} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-blue-50 hover:text-blue-700 transition-colors">
-                 <LabDotsIcon className="w-4 h-4 opacity-70" />
-                 <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Lab Düzeni</span>
-               </Button>
+               <Button variant="ghost" onClick={() => handleResetLayout('classroom')} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-orange-50 hover:text-orange-700 transition-colors">
+                  <RotateCcw className="w-4 h-4 opacity-70" />
+                  <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Sınıfı Sıfırla</span>
+                </Button>
 
-               <Button variant="ghost" onClick={handleReset} disabled={saving} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-red-50 hover:text-red-700 transition-colors">
-                 <RotateCcw className="w-4 h-4" />
-                 <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Sınıf Düzeni</span>
-               </Button>
+                <Button variant="ghost" onClick={() => handleResetLayout('lab')} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-orange-50 hover:text-orange-700 transition-colors">
+                  <RotateCcw className="w-4 h-4 opacity-70" />
+                  <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Lab'ı Sıfırla</span>
+                </Button>
 
-               <Button variant="ghost" onClick={clearAll} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-red-50 hover:text-red-700 transition-colors">
-                 <Trash2 className="w-4 h-4" />
-                 <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Temizle</span>
-               </Button>
+                <Button variant="ghost" onClick={clearAll} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-red-50 hover:text-red-700 transition-colors">
+                  <Trash2 className="w-4 h-4" />
+                  <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Hepsini Sil</span>
+                </Button>
 
-               <Button variant="default" onClick={handleSave} disabled={saving} className="h-9 px-3 mt-1 flex items-center justify-start gap-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white shadow-md transition-all">
-                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                 <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Kaydet</span>
-               </Button>
+                <Button variant="default" onClick={handleSave} disabled={saving} className="h-9 px-3 mt-1 flex items-center justify-start gap-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white shadow-md transition-all">
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Kaydet</span>
+                </Button>
             </div>
           </div>
         </div>
@@ -1245,11 +1278,19 @@ export function SeatingPlanPage() {
                   <div className="absolute left-4 top-4 z-40 flex flex-row gap-2">
                     {/* Düzen Butonları */}
                     <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl overflow-hidden pointer-events-auto transition-all">
-                      <button onClick={applyClassroomLayout} className="w-10 h-10 flex items-center justify-center text-slate-800 hover:bg-white transition-all group border-r border-slate-200/50" title="Sınıf Düzeni">
-                        <ClassroomDotsIcon className="w-5 h-5 group-hover:scale-110 transition-transform opacity-70" />
+                      <button 
+                        onClick={() => switchMode('classroom')} 
+                        className={`w-10 h-10 flex items-center justify-center transition-all group border-r border-slate-200/50 ${layoutMode === 'classroom' ? 'bg-primary/10 text-primary' : 'text-slate-800 hover:bg-white'}`} 
+                        title="Sınıf Düzeni"
+                      >
+                        <ClassroomDotsIcon className={`w-5 h-5 group-hover:scale-110 transition-transform ${layoutMode === 'classroom' ? 'opacity-100' : 'opacity-70'}`} />
                       </button>
-                      <button onClick={applyLabLayout} className="w-10 h-10 flex items-center justify-center text-slate-800 hover:bg-white transition-all group" title="Lab Düzeni">
-                        <LabDotsIcon className="w-5 h-5 group-hover:scale-110 transition-transform opacity-70" />
+                      <button 
+                        onClick={() => switchMode('lab')} 
+                        className={`w-10 h-10 flex items-center justify-center transition-all group ${layoutMode === 'lab' ? 'bg-primary/10 text-primary' : 'text-slate-800 hover:bg-white'}`} 
+                        title="Lab Düzeni"
+                      >
+                        <LabDotsIcon className={`w-5 h-5 group-hover:scale-110 transition-transform ${layoutMode === 'lab' ? 'opacity-100' : 'opacity-70'}`} />
                       </button>
                     </div>
 
