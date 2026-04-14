@@ -24,7 +24,7 @@ interface DraggableItemProps {
 }
 
 export function DraggableItem({
-  item, student, isSelectionMode, isSelected, isFollowerDrag, scale: _scale = 1,
+  item, student, isSelectionMode, isSelected, isFollowerDrag, scale = 1,
   onSelectionToggle, pcSnapSide,
   activeApplicationId, score, onNumpadOpen, onDevamsizToggle, onCameraOpen, onFileUpload
 }: DraggableItemProps) {
@@ -88,7 +88,7 @@ export function DraggableItem({
     }
     clickStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() }
     
-    // 2 saniye basılı tutma timer'ını başlat (Seçim moduna girmek için)
+    // 1.5 saniye basılı tutma timer'ını başlat (Seçim moduna girmek için)
     if (!isExpanded && item.type === 'student' && !isSelectionMode) {
       longPressTimer.current = setTimeout(() => {
         if (onSelectionToggle) {
@@ -103,7 +103,7 @@ export function DraggableItem({
             }
           } catch (e) { /* ignore */ }
         }
-      }, 2000)
+      }, 1500)
     }
 
     if (!isExpanded && listeners?.onPointerDown) {
@@ -122,8 +122,8 @@ export function DraggableItem({
     const dy = Math.abs(e.clientY - clickStartRef.current.y)
     const dt = Date.now() - clickStartRef.current.time
     
-    // Eğer 2 saniyeyi doldurmadan bıraktıysa ve hareket etmediyse tıklama işlemi
-    if (dx < 10 && dy < 10 && dt < 2000) {
+    // Eğer 1.5 saniyeyi doldurmadan bıraktıysa ve hareket etmediyse tıklama işlemi
+    if (dx < 10 && dy < 10 && dt < 1500) {
       if (dt < 450) { // Kısa tıklama
         e.stopPropagation()
         if (isSelectionMode) {
@@ -316,13 +316,16 @@ function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, has
 
   if (item.type === 'pc_label') {
     const isTargeted = !!pcSnapSide;
+    const isLinked = !!item.linkedStudentId;
     return (
       <div className={`w-[60px] h-[34px] backdrop-blur-sm border-2 rounded-xl flex items-center justify-center cursor-grab active:cursor-grabbing select-none transition-all duration-200 ${
         isTargeted 
           ? 'bg-blue-100 border-primary scale-110 shadow-lg shadow-primary/30 rotate-6' 
           : 'bg-white/70 border-slate-400 shadow-sm hover:bg-white/90 hover:shadow-md'
       }`}>
-        <span className={`font-black text-[22px] leading-none transition-colors ${isTargeted ? 'text-primary' : 'text-slate-700'}`}>
+        <span className={`font-black text-[22px] leading-none transition-colors ${
+          isTargeted ? 'text-primary' : (isLinked ? 'text-slate-700' : 'text-slate-400')
+        }`}>
           {item.pcNo}
         </span>
       </div>

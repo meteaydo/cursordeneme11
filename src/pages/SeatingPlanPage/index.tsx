@@ -115,8 +115,6 @@ export function SeatingPlanPage() {
 
   // Scores state: studentId -> Score
   const [scores, setScores] = useState<Record<string, Score>>({})
-  const [scoresLoaded, setScoresLoaded] = useState(false)
-  void scoresLoaded // suppress unused warning
   const [numpadOpenFor, setNumpadOpenFor] = useState<string | null>(null)
   const [cameraOpenFor, setCameraOpenFor] = useState<string | null>(null)
   const [photoUploading, setPhotoUploading] = useState(false)
@@ -410,15 +408,12 @@ export function SeatingPlanPage() {
     };
   }, [objects, initDone]);
 
-  // Load scores when applicationId is present
   useEffect(() => {
     if (!activeApplicationId) return
-    setScoresLoaded(false)
     getScores(activeApplicationId).then((list) => {
       const map: Record<string, Score> = {}
       list.forEach((s) => (map[s.studentId] = s))
       setScores(map)
-      setScoresLoaded(true)
     })
   }, [activeApplicationId])
 
@@ -783,8 +778,7 @@ export function SeatingPlanPage() {
     useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
     useSensor(SmartTouchSensor, { 
       activationConstraint: { 
-        delay: 500, // Pan yaparken kazara sürüklemeyi önlemek için 0.5sn bekleme (Long press)
-        tolerance: 8 // Bekleme sırasında 8px'e kadar oynamaya izin ver (mobil hassasiyeti)
+        distance: 5 // Direkt sürüklenme için mesafe sınırı
       } 
     }) 
   )
@@ -1049,6 +1043,17 @@ export function SeatingPlanPage() {
             }
             return o;
           });
+        } 
+        // Bağlantıyı Koparma (Eski öğrenciden uzağa taşındıysa)
+        else if (!isGroupDrag && activeObj.linkedStudentId) {
+          const currentStudent = next.find(o => o.type === 'student' && o.studentId === activeObj.linkedStudentId);
+          if (currentStudent) {
+            const dist = Math.sqrt((movedActive.x - currentStudent.x)**2 + (movedActive.y - currentStudent.y)**2);
+            if (dist > 80) { 
+              next = next.map(o => o.id === activeObj.id ? { ...o, linkedStudentId: '' } : o);
+              updateStudent(activeObj.linkedStudentId, { pcNo: '' });
+            }
+          }
         }
       }
 
@@ -1069,7 +1074,7 @@ export function SeatingPlanPage() {
           const currentLabel = next.find(o => o.type === 'pc_label' && o.linkedStudentId === activeObj.studentId);
           if (currentLabel) {
             const dist = Math.sqrt((movedActive.x - currentLabel.x)**2 + (movedActive.y - currentLabel.y)**2);
-            if (dist > 150) { 
+            if (dist > 80) { 
               next = next.map(o => o.id === currentLabel.id ? { ...o, linkedStudentId: '' } : o);
               updateStudent(activeObj.studentId, { pcNo: '' });
             }
@@ -1374,6 +1379,49 @@ export function SeatingPlanPage() {
                             />
                           )
                         })}
+
+                        {/* Bağlantı Çizgileri Layer (Üstte, objelerin üzerinde - pointer-events-none ile) */}
+                        <svg className="absolute inset-0 pointer-events-none w-full h-full" style={{ zIndex: 45 }}>
+                          {objects.filter(o => o.type === 'pc_label' && o.linkedStudentId).map(label => {
+                            const studentObj = objects.find(o => o.type === 'student' && o.studentId === label.linkedStudentId);
+                            if (!studentObj) return null;
+
+                            // Merkez koordinatları hesapla
+                            const lCx = label.x + 30; // PC Label Center
+                            const lCy = label.y + 17;
+                            const sCx = studentObj.x + 35; // Student Center
+                            const sCy = studentObj.y + 35;
+
+                            const dx = lCx - sCx;
+                            const dy = lCy - sCy;
+                            const dist = Math.sqrt(dx * dx + dy * dy);
+
+                            if (dist < 45) return null; // Çok yakınlarsa çizgi gösterme
+
+                            // Ofsetler: Merkezle kenar arası (Student ~22px, Label ~15px)
+                            const offS = 22;
+                            const offL = 15;
+
+                            const x1 = sCx + (dx / dist) * offS;
+                            const y1 = sCy + (dy / dist) * offS;
+                            const x2 = lCx - (dx / dist) * offL;
+                            const y2 = lCy - (dy / dist) * offL;
+
+                            return (
+                              <line
+                                key={`conn-${label.id}-${studentObj.id}`}
+                                x1={x1}
+                                y1={y1}
+                                x2={x2}
+                                y2={y2}
+                                stroke="rgba(99, 102, 241, 0.5)"
+                                strokeWidth="2.5"
+                                strokeLinecap="round"
+                                className="conn-line"
+                              />
+                            );
+                          })}
+                        </svg>
                       </DroppableCanvas>
                     </div>
                   </DndContext>

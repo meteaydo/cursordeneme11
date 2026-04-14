@@ -41,3 +41,13 @@
 .safe-bottom {
   padding-bottom: env(safe-area-inset-bottom);
 }
+
+@keyframes line-dash {
+  to {
+    stroke-dashoffset: -20;
+  }
+}
+
+.conn-line {
+  transition: opacity 0.3s ease;
+}
