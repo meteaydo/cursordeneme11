@@ -1362,7 +1362,6 @@ export function SeatingPlanPage() {
                               isSelectionMode={isSelectionMode}
                               isSelected={selectedIds.includes(obj.id)}
                               isFollowerDrag={isFollowerDrag}
-                              scale={scaleRef.current}
                               activeApplicationId={activeApplicationId}
                               score={obj.type === 'student' && obj.studentId ? scores[obj.studentId] : undefined}
                               pcSnapSide={pcSnapSide}

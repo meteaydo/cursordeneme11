@@ -12,7 +12,6 @@ interface DraggableItemProps {
   isSelectionMode?: boolean
   isSelected?: boolean
   isFollowerDrag?: boolean
-  scale?: number
   onSelectionToggle?: () => void
   activeApplicationId?: string | null
   score?: Score
@@ -24,7 +23,7 @@ interface DraggableItemProps {
 }
 
 export function DraggableItem({
-  item, student, isSelectionMode, isSelected, isFollowerDrag, scale = 1,
+  item, student, isSelectionMode, isSelected, isFollowerDrag,
   onSelectionToggle, pcSnapSide,
   activeApplicationId, score, onNumpadOpen, onDevamsizToggle, onCameraOpen, onFileUpload
 }: DraggableItemProps) {
