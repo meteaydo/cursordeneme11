@@ -84,6 +84,19 @@ const LabDotsIcon = ({ className }: { className?: string }) => (
   </svg>
 )
 
+// Zoom (pinch-zoom) sırasında objelerin sürüklenmesini engellemek için özel TouchSensor
+class SmartTouchSensor extends TouchSensor {
+  static activator = [
+    {
+      eventName: 'onTouchStart' as const,
+      handler: ({ nativeEvent: event }: { nativeEvent: TouchEvent }) => {
+        if (event.touches.length > 1) return false;
+        return true;
+      },
+    },
+  ];
+}
+
 export function SeatingPlanPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const location = useLocation()
@@ -160,7 +173,19 @@ export function SeatingPlanPage() {
   // activeId değiştiğinde ref'i güncelle (wheel closure'da stale olmasın)
   useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
 
-  // Custom native wheel handler — milimetrik hassasiyette, cursor merkezli zoom
+  // Çift parmak (zoom) başladığı anda eğer bir obje sürükleniyorsa sürüklemeyi iptal et
+  useEffect(() => {
+    const handleTouchStart = (e: TouchEvent) => {
+      if (e.touches.length > 1 && activeIdRef.current) {
+        // dnd-kit Escape tuşu ile sürüklemeyi iptal eder
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      }
+    };
+    window.addEventListener('touchstart', handleTouchStart, { passive: true });
+    return () => window.removeEventListener('touchstart', handleTouchStart);
+  }, []);
+
+  // Custom native wheel handler — milimetrik hassasimette, cursor merkezli zoom
   useEffect(() => {
     const el = canvasContainerRef.current;
     if (!el) return;
@@ -718,7 +743,7 @@ export function SeatingPlanPage() {
   // DND Handlers
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(TouchSensor, { activationConstraint: { distance: 5 } }) // 0 delay, starts dragging immediately on movement
+    useSensor(SmartTouchSensor, { activationConstraint: { distance: 5 } }) 
   )
 
   const handleDragStart = (e: DragStartEvent) => {
