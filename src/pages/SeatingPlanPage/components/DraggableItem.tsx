@@ -83,7 +83,7 @@ export function DraggableItem({
 
   const handlePointerDown = (e: React.PointerEvent) => {
     // Çoklu dokunuş varsa (zoom ihtimali) hiçbir işlemi başlatma
-    if (e.pointerType === 'touch' && (e.nativeEvent as TouchEvent).touches?.length > 1) {
+    if (e.pointerType === 'touch' && (e.nativeEvent as any).touches?.length > 1) {
       return
     }
     clickStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() }
