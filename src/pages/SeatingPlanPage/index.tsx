@@ -109,11 +109,7 @@ export function SeatingPlanPage() {
 
   const course = courses.find((c) => c.id === courseId)
 
-  // Active application for scoring (from navigation state)
-  const activeApplicationId = navState?.applicationId ?? null
-  const activeApplicationAd = navState?.applicationAd ?? null
-
-  // Scores state: studentId -> Score
+  // -- STATE & REFS --
   const [scores, setScores] = useState<Record<string, Score>>({})
   const [numpadOpenFor, setNumpadOpenFor] = useState<string | null>(null)
   const [cameraOpenFor, setCameraOpenFor] = useState<string | null>(null)
@@ -133,6 +129,19 @@ export function SeatingPlanPage() {
   const [history, setHistory] = useState<SeatObject[][]>([])
   const [showAssignmentConfirm, setShowAssignmentConfirm] = useState(false)
   const [idsForAssignment, setIdsForAssignment] = useState<string[]>([])
+
+  // Selection DB ID Calculation
+  const selectedStudentDBIds = new Set<string>();
+  if (isSelectionMode) {
+    selectedIds.forEach(sid => {
+      const sObj = objects.find(o => o.id === sid && o.type === 'student');
+      if (sObj?.studentId) selectedStudentDBIds.add(sObj.studentId);
+    });
+  }
+
+  // Active application for scoring (from navigation state)
+  const activeApplicationId = navState?.applicationId ?? null
+  const activeApplicationAd = navState?.applicationAd ?? null
 
   // PC label snap state — useRef ile senkron tutuluyor (render tetiklemez)
   // Render için ayrıca pcSnapTargetState kullanılır (sadece görsel güncelleme)
@@ -1007,8 +1016,29 @@ export function SeatingPlanPage() {
     pushHistory();
 
     setObjects((prev) => {
+      const movingIds = new Set<string>();
+      if (isGroupDrag) {
+        // Seçili öğrencilerin DATABASE ID'lerini topla
+        const selectedStudentDBIds = new Set<string>();
+        selectedIds.forEach(sid => {
+          const sObj = prev.find(o => o.id === sid && o.type === 'student');
+          if (sObj?.studentId) selectedStudentDBIds.add(sObj.studentId);
+        });
+
+        selectedIds.forEach(id => movingIds.add(id));
+        
+        // Bu öğrencilere bağlı PC etiketlerini de hareket grubuna dahil et
+        prev.forEach(o => {
+          if (o.type === 'pc_label' && o.linkedStudentId && selectedStudentDBIds.has(o.linkedStudentId)) {
+            movingIds.add(o.id);
+          }
+        });
+      } else {
+        movingIds.add(activeObj.id);
+      }
+
       let next = prev.map((obj) => {
-        const isMoving = (isGroupDrag && selectedIds.includes(obj.id)) || obj.id === activeObj.id;
+        const isMoving = movingIds.has(obj.id);
         if (!isMoving) return obj;
 
         let newX = Math.round(obj.x + finalDx);
@@ -1340,11 +1370,19 @@ export function SeatingPlanPage() {
                         <div id="guide-y" className="absolute left-0 right-0 h-[2px] bg-primary/40 -translate-y-1/2 shadow-sm z-40 pointer-events-none" style={{ display: 'none' }} />
 
                         {objects.map((obj) => {
-                          const isFollowerDrag = activeId !== null && 
-                                                 isSelectionMode && 
-                                                 selectedIds.includes(activeId.replace('canvas_', '')) && 
-                                                 selectedIds.includes(obj.id) && 
-                                                 `canvas_${obj.id}` !== activeId;
+                          const activeUUID = activeId?.replace('canvas_', '');
+                          const isMainDraggingSelected = activeId !== null && isSelectionMode && activeUUID && selectedIds.includes(activeUUID);
+                          
+                          let isFollowerDrag = isMainDraggingSelected && 
+                                               selectedIds.includes(obj.id) && 
+                                               `canvas_${obj.id}` !== activeId;
+                          
+                          // Toplu seçimde bir öğrenci sürükleniyorsa ve bu PC etiketi o öğrenciye bağlıysa, beraber hareket et
+                          if (!isFollowerDrag && isMainDraggingSelected && obj.type === 'pc_label' && obj.linkedStudentId) {
+                            if (selectedStudentDBIds.has(obj.linkedStudentId)) {
+                              isFollowerDrag = true;
+                            }
+                          }
                           // PC label sürüklenirken bu student kartı hedef mi?
                           const isPcDragActive = activeId !== null && objects.find(o => `canvas_${o.id}` === activeId)?.type === 'pc_label';
                           const isStudentDragActive = activeId !== null && objects.find(o => `canvas_${o.id}` === activeId)?.type === 'student';
