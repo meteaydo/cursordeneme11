@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { createPortal } from 'react-dom'
 import { useParams, useLocation } from 'react-router-dom'
 // @ts-ignore
 import { v4 as uuidv4 } from 'uuid'
@@ -26,7 +27,7 @@ import { toast } from '@/hooks/use-toast'
 import type { SeatObject, Score } from '@/types'
 import { DraggableItem } from './components/DraggableItem'
 import { SmartNumpad } from '@/components/ui/smart-numpad'
-import { Loader2, Save, RotateCcw, Plus, MousePointer2, Wrench, Undo2, Minus, LayoutGrid, Monitor, Trash2 } from 'lucide-react'
+import { Loader2, Save, RotateCcw, Plus, MousePointer2, Wrench, Undo2, Minus, Rows3, LayoutPanelTop, Trash2, ZoomIn, ZoomOut, Settings } from 'lucide-react'
 
 
 const getObjectSize = (type: string) => {
@@ -55,6 +56,33 @@ function AutoFitter({ onFit, loaded, layoutVersion }: { onFit: () => void, loade
 
   return null;
 }
+
+const ClassroomDotsIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" className={className}>
+    <circle cx="4" cy="6" r="2" />
+    <circle cx="12" cy="6" r="2" />
+    <circle cx="20" cy="6" r="2" />
+    <circle cx="4" cy="12" r="2" />
+    <circle cx="12" cy="12" r="2" />
+    <circle cx="20" cy="12" r="2" />
+    <circle cx="4" cy="18" r="2" />
+    <circle cx="12" cy="18" r="2" />
+    <circle cx="20" cy="18" r="2" />
+  </svg>
+)
+
+const LabDotsIcon = ({ className }: { className?: string }) => (
+  <svg viewBox="0 0 24 24" fill="currentColor" stroke="none" className={className}>
+    <circle cx="4.5" cy="6" r="2" />
+    <circle cx="9.5" cy="6" r="2" />
+    <circle cx="14.5" cy="6" r="2" />
+    <circle cx="19.5" cy="6" r="2" />
+    <circle cx="4.5" cy="12" r="2" />
+    <circle cx="4.5" cy="18" r="2" />
+    <circle cx="19.5" cy="12" r="2" />
+    <circle cx="19.5" cy="18" r="2" />
+  </svg>
+)
 
 export function SeatingPlanPage() {
   const { courseId } = useParams<{ courseId: string }>()
@@ -90,6 +118,8 @@ export function SeatingPlanPage() {
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [history, setHistory] = useState<SeatObject[][]>([])
+  const [showAssignmentConfirm, setShowAssignmentConfirm] = useState(false)
+  const [idsForAssignment, setIdsForAssignment] = useState<string[]>([])
 
   // PC label snap state — useRef ile senkron tutuluyor (render tetiklemez)
   // Render için ayrıca pcSnapTargetState kullanılır (sadece görsel güncelleme)
@@ -266,9 +296,24 @@ export function SeatingPlanPage() {
 
   const persistPlan = (newObjects: SeatObject[]) => {
     if (!courseId) return;
-    // Sessiz arka plan auto-save (UI'yi bloklamaz)
-    updateCourse(courseId, { seatingPlan: JSON.stringify(newObjects) }).catch(() => {});
+    updateCourse(courseId, { seatingPlan: JSON.stringify(newObjects) })
+      .then(() => console.log('Plan persisted'))
+      .catch((err) => console.error('Plan persist error:', err));
   }
+
+  // Auto-save effect
+  useEffect(() => {
+    if (!initDone || objects.length === 0) return;
+    
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(() => {
+      persistPlan(objects);
+    }, 1000); // 1 saniye debounce
+
+    return () => {
+      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    };
+  }, [objects, initDone]);
 
   // Load scores when applicationId is present
   useEffect(() => {
@@ -626,7 +671,11 @@ export function SeatingPlanPage() {
     setObjects(newObjects);
     persistPlan(newObjects);
     setLayoutVersion(v => v + 1);
-    toast({ title: 'Düzen Değişti', description: 'Lab düzenine geçildi ve PC numaraları atandı.' });
+    
+    // Defer toast to avoid 'update while rendering' warning
+    setTimeout(() => {
+      toast({ title: 'Düzen Değişti', description: 'Lab düzenine geçildi ve PC numaraları atandı.' });
+    }, 0);
   }
 
   const handleSave = async () => {
@@ -752,8 +801,16 @@ export function SeatingPlanPage() {
 
   const handleDragMove = (e: DragMoveEvent) => {
     const activeObj = objects.find(o => `canvas_${o.id}` === e.active.id);
+    const isGroupDrag = isSelectionMode && selectedIds.includes((e.active.id as string).replace('canvas_', ''));
 
     if (activeObj?.type === 'pc_label') {
+      // Çoklu taşımada pc_label snap olayını devre dışı bırak
+      if (isGroupDrag && pcSnapTarget) {
+        pcSnapTargetRef.current = null;
+        setPcSnapTarget(null);
+        return;
+      }
+
       // pc_label sürükleniyor: öğrenci kartına snap
       const labelX = activeObj.x + e.delta.x;
       const labelY = activeObj.y + e.delta.y;
@@ -766,14 +823,22 @@ export function SeatingPlanPage() {
     }
 
     if (activeObj?.type === 'student') {
-      // öğrenci sürükleniyor: pc etiketine snap
-      const studentX = activeObj.x + e.delta.x;
-      const studentY = activeObj.y + e.delta.y;
-      const target = computeStudentToLabelSnapTarget(studentX, studentY, objects);
-      const simplifiedTarget = target ? { studentObjId: target.labelId, side: target.side } : null;
-      if (JSON.stringify(simplifiedTarget) !== JSON.stringify(pcSnapTargetRef.current)) {
-        pcSnapTargetRef.current = simplifiedTarget;
-        setPcSnapTarget(simplifiedTarget);
+      // Çoklu taşımada öğrenci -> pc_label snap olayını devre dışı bırak
+      if (isGroupDrag && pcSnapTarget) {
+        pcSnapTargetRef.current = null;
+        setPcSnapTarget(null);
+      }
+
+      if (!isGroupDrag) {
+        // öğrenci sürükleniyor: pc etiketine snap
+        const studentX = activeObj.x + e.delta.x;
+        const studentY = activeObj.y + e.delta.y;
+        const target = computeStudentToLabelSnapTarget(studentX, studentY, objects);
+        const simplifiedTarget = target ? { studentObjId: target.labelId, side: target.side } : null;
+        if (JSON.stringify(simplifiedTarget) !== JSON.stringify(pcSnapTargetRef.current)) {
+          pcSnapTargetRef.current = simplifiedTarget;
+          setPcSnapTarget(simplifiedTarget);
+        }
       }
     }
 
@@ -782,7 +847,7 @@ export function SeatingPlanPage() {
 
     const { guides: newGuides } = getSnapPosition(e.active.id as string, unscaledX, unscaledY, objects);
     
-    // Yüksek Performanslı 60fps Kılavuz Çizgileri - React state yerine doğrudan DOM güncellenir (Takılmayı / Stuttering'i önler)
+    // Yüksek Performanslı 60fps Kılavuz Çizgileri
     const guideXEl = document.getElementById('guide-x');
     const guideYEl = document.getElementById('guide-y');
     
@@ -807,45 +872,31 @@ export function SeatingPlanPage() {
     }
   }
 
-  // Kenar snap offset hesabı: pc_label'ı öğrenci kartının hangi kenarına yerleştireceğiz
+  // Kenar snap offset hesabı
   const getPcSnapPosition = (studentObj: SeatObject, side: PcSnapSide): { x: number; y: number } => {
     const CARD_W = 70, CARD_H = 70;
     const PC_W = 60, PC_H = 34;
-    const GAP = 2; // kart kenarından boşluk (px)
+    const GAP = 2;
     switch (side) {
-      case 'top':
-        // Yatayda ortala, kartın üstüne 2px boşlukla yerleştir
-        return { x: studentObj.x + (CARD_W - PC_W) / 2, y: studentObj.y - PC_H - GAP };
-      case 'right':
-        // Dikeyde ortala, kartın sağına 2px boşlukla yerleştir
-        return { x: studentObj.x + CARD_W + GAP, y: studentObj.y + (CARD_H - PC_H) / 2 };
-      case 'bottom':
-        // Yatayda ortala, kartın altına 2px boşlukla yerleştir
-        return { x: studentObj.x + (CARD_W - PC_W) / 2, y: studentObj.y + CARD_H + GAP };
-      case 'left':
-        // Dikeyde ortala, kartın soluna 2px boşlukla yerleştir
-        return { x: studentObj.x - PC_W - GAP, y: studentObj.y + (CARD_H - PC_H) / 2 };
+      case 'top': return { x: studentObj.x + (CARD_W - PC_W) / 2, y: studentObj.y - PC_H - GAP };
+      case 'right': return { x: studentObj.x + CARD_W + GAP, y: studentObj.y + (CARD_H - PC_H) / 2 };
+      case 'bottom': return { x: studentObj.x + (CARD_W - PC_W) / 2, y: studentObj.y + CARD_H + GAP };
+      case 'left': return { x: studentObj.x - PC_W - GAP, y: studentObj.y + (CARD_H - PC_H) / 2 };
     }
   };
 
-  // Yüklenen plandaki pc_label'ları linkedStudentId bağlı öğrencilerinin en yakın kenasına çek
-  // Eski kayıtlardaki keyfi konumları önler
   const snapPcLabelsToEdges = (objs: SeatObject[]): SeatObject[] => {
     const SIDES: PcSnapSide[] = ['top', 'right', 'bottom', 'left'];
     const studentMap = new Map<string, SeatObject>();
-    objs.forEach(o => {
-      if (o.type === 'student' && o.studentId) studentMap.set(o.studentId, o);
-    });
+    objs.forEach(o => { if (o.type === 'student' && o.studentId) studentMap.set(o.studentId, o); });
 
     return objs.map(obj => {
       if (obj.type !== 'pc_label' || !obj.linkedStudentId) return obj;
       const studentObj = studentMap.get(obj.linkedStudentId);
       if (!studentObj) return obj;
-
       const PC_W = 60, PC_H = 34;
       const labelCx = obj.x + PC_W / 2;
       const labelCy = obj.y + PC_H / 2;
-
       let bestSide: PcSnapSide = 'top';
       let bestDist = Infinity;
       for (const side of SIDES) {
@@ -853,7 +904,6 @@ export function SeatingPlanPage() {
         const d = Math.hypot(pos.x + PC_W / 2 - labelCx, pos.y + PC_H / 2 - labelCy);
         if (d < bestDist) { bestDist = d; bestSide = side; }
       }
-
       const snapped = getPcSnapPosition(studentObj, bestSide);
       return { ...obj, x: Math.round(snapped.x), y: Math.round(snapped.y) };
     });
@@ -861,11 +911,10 @@ export function SeatingPlanPage() {
 
   const handleDragEnd = (e: DragEndEvent) => {
     setActiveId(null)
-
     const guideXEl = document.getElementById('guide-x');
     const guideYEl = document.getElementById('guide-y');
-    if (guideXEl) guideXEl.style.display = 'none';
-    if (guideYEl) guideYEl.style.display = 'none';
+    if (guideXEl) { guideXEl.style.display = 'none'; }
+    if (guideYEl) { guideYEl.style.display = 'none'; }
 
     const canvas = document.getElementById('seating-canvas');
     if (canvas) {
@@ -875,7 +924,6 @@ export function SeatingPlanPage() {
 
     const { active, delta } = e
     if (delta.x === 0 && delta.y === 0) {
-      // Sürükleme yoksa snap target sıfırla
       pcSnapTargetRef.current = null;
       setPcSnapTarget(null);
       return;
@@ -883,164 +931,100 @@ export function SeatingPlanPage() {
 
     const activeUUID = (active.id as string).replace('canvas_', '')
     const isGroupDrag = isSelectionMode && selectedIds.includes(activeUUID)
-
     const activeObj = objects.find(o => `canvas_${o.id}` === active.id);
-    const isPcLabel = activeObj?.type === 'pc_label';
+    if (!activeObj) return;
 
-    // PC label için snap target'tan pozisyon al (grid snap yok)
-    if (isPcLabel && activeObj) {
-      const snapTarget = pcSnapTargetRef.current;
-      pcSnapTargetRef.current = null;
-      setPcSnapTarget(null);
+    const { snapX, snapY } = getSnapPosition(active.id as string, delta.x, delta.y, objects);
+    const finalDx = delta.x + snapX;
+    const finalDy = delta.y + snapY;
 
-      pushHistory();
-      setObjects((prev) => {
-        const studentObjForSnap = snapTarget
-          ? prev.find(o => o.id === snapTarget.studentObjId)
-          : null;
-
-        // Sürüklenen etiketi yeni konuma + linkedStudentId'ye taşı
-        const firstPass = prev.map((obj) => {
-          if (obj.id !== activeObj.id) return obj;
-          if (studentObjForSnap) {
-            const pos = getPcSnapPosition(studentObjForSnap, snapTarget!.side);
-            return {
-              ...obj,
-              x: Math.round(pos.x),
-              y: Math.round(pos.y),
-              linkedStudentId: studentObjForSnap.studentId ?? obj.linkedStudentId,
-            };
-          }
-          return {
-            ...obj,
-            x: Math.round(obj.x + delta.x),
-            y: Math.round(obj.y + delta.y),
-          };
-        });
-
-        const draggedLabel = firstPass.find(o => o.id === activeObj.id);
-        let finalObjects = firstPass;
-
-          // ── linkedStudentId swap + pcNo swap (Firebase) ───────────────────
-          if (draggedLabel?.pcNo && studentObjForSnap?.studentId) {
-            const targetStudentId = studentObjForSnap.studentId;
-            const movingPcNo = draggedLabel.pcNo;
-
-            // 1. Firebase Güncelleme: Tek çağrı yeterli, kanca takası yönetir.
-            updateStudent(targetStudentId, { pcNo: movingPcNo });
-
-            // 2. State (Obje) Güncelleme: Tam fiziksel Takas (Swap)
-            // Sürüklediğimiz etiketi hedefe bağla, hedefin eski etiketini sürükleyenin eski yerine gönder.
-            const oldLinkedStudentId = draggedLabel.linkedStudentId;
-            finalObjects = firstPass.map(o => {
-              if (o.type !== 'pc_label' || o.id === draggedLabel.id) return o;
-              
-              if (o.linkedStudentId === targetStudentId) {
-                if (oldLinkedStudentId) {
-                  const oldStudentObj = prev.find(p => p.studentId === oldLinkedStudentId);
-                  if (oldStudentObj) {
-                    const pos = getPcSnapPosition(oldStudentObj, 'top');
-                    return { ...o, linkedStudentId: oldLinkedStudentId, x: Math.round(pos.x), y: Math.round(pos.y) };
-                  }
-                }
-                return { ...o, linkedStudentId: '' };
-              }
-              return o;
-            });
-          }
-        // ──────────────────────────────────────────────────────────────────
-
-        if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-        persistTimerRef.current = setTimeout(() => persistPlan(finalObjects), 800);
-        return finalObjects;
-      });
-      return;
-    }
-
-    // Öğrenci sürüklenmişse unlinking veya yeni PC ataması yap
-    if (activeObj?.type === 'student') {
-      const snapTarget = pcSnapTargetRef.current; // Target aslında pc_label'dır burada
-      pcSnapTargetRef.current = null;
-      setPcSnapTarget(null);
-
-      // ÖNCE: Merkezler arası snap hesapla (Hizalama bozulmasın)
-      const { snapX, snapY } = getSnapPosition(active.id as string, delta.x, delta.y, objects);
-      const finalDx = delta.x + snapX;
-      const finalDy = delta.y + snapY;
-
-      pushHistory();
-      setObjects((prev) => {
-        let final = prev.map(o => {
-          if (o.id === activeObj.id) {
-            return { ...o, x: Math.round(activeObj.x + finalDx), y: Math.round(activeObj.y + finalDy) };
-          }
-          return o;
-        });
-
-        const movedStudent = final.find(o => o.id === activeObj.id);
-        if (!movedStudent) return final;
-
-        // EĞER BİR ETİKETE SNAP OLMUŞSA: O etiketi buraya bağla
-        if (snapTarget) {
-          const targetLabel = final.find(o => o.id === snapTarget.studentObjId);
-          if (targetLabel && movedStudent.studentId) {
-            const newPos = getPcSnapPosition(movedStudent, snapTarget.side);
-            final = final.map(o => {
-              if (o.id === targetLabel.id) {
-                return { ...o, linkedStudentId: movedStudent.studentId, x: Math.round(newPos.x), y: Math.round(newPos.y) };
-              }
-              // Eğer bu öğrencinin ESKİ bir etiketi varsa, onu boşa çıkar (çünkü yeni etikete bağlandı)
-              if (o.type === 'pc_label' && o.linkedStudentId === movedStudent.studentId && o.id !== targetLabel.id) {
-                return { ...o, linkedStudentId: '' };
-              }
-              return o;
-            });
-            // Tek bir updateStudent çağrısı yeterli, kanca çakışmayı yönetir
-            updateStudent(movedStudent.studentId, { pcNo: targetLabel.pcNo ?? '' });
-          }
-        } else {
-          // SNAP YOKSA: Öğrenciyi eski etiketinden ayır (eğer mesafe yeterince çoksa)
-          const currentLabel = final.find(o => o.type === 'pc_label' && o.linkedStudentId === movedStudent.studentId);
-          if (currentLabel) {
-            const dist = Math.sqrt((movedStudent.x - currentLabel.x)**2 + (movedStudent.y - currentLabel.y)**2);
-            if (dist > 150) { 
-              final = final.map(o => o.id === currentLabel.id ? { ...o, linkedStudentId: '' } : o);
-              if (movedStudent.studentId) updateStudent(movedStudent.studentId, { pcNo: '' });
-            }
-          }
-        }
-
-        if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-        persistTimerRef.current = setTimeout(() => persistPlan(final), 800);
-        return final;
-      });
-      return;
-    }
-    const unscaledX = delta.x;
-    const unscaledY = delta.y;
-    const { snapX, snapY } = getSnapPosition(active.id as string, unscaledX, unscaledY, objects);
-    
-    const finalDx = unscaledX + snapX;
-    const finalDy = unscaledY + snapY;
+    const snapTarget = pcSnapTargetRef.current;
+    pcSnapTargetRef.current = null;
+    setPcSnapTarget(null);
 
     pushHistory();
 
     setObjects((prev) => {
-      const updatedObjects = prev.map((obj) => {
-        if (isGroupDrag && selectedIds.includes(obj.id)) {
-          return { ...obj, x: Math.round(obj.x + finalDx), y: Math.round(obj.y + finalDy) }
+      let next = prev.map((obj) => {
+        const isMoving = (isGroupDrag && selectedIds.includes(obj.id)) || obj.id === activeObj.id;
+        if (!isMoving) return obj;
+
+        let newX = Math.round(obj.x + finalDx);
+        let newY = Math.round(obj.y + finalDy);
+
+        if (obj.id === activeObj.id && activeObj.type === 'pc_label' && snapTarget) {
+          const studentObjForSnap = prev.find(o => o.id === snapTarget.studentObjId);
+          if (studentObjForSnap) {
+            const pos = getPcSnapPosition(studentObjForSnap, snapTarget.side);
+            newX = Math.round(pos.x);
+            newY = Math.round(pos.y);
+          }
         }
-        if (`canvas_${obj.id}` === active.id) {
-          return { ...obj, x: Math.round(obj.x + finalDx), y: Math.round(obj.y + finalDy) }
-        }
-        return obj;
+        
+        return { ...obj, x: newX, y: newY };
       });
 
-      // Debounced persist
-      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-      persistTimerRef.current = setTimeout(() => persistPlan(updatedObjects), 800);
-      return updatedObjects;
-    })
+      const movedActive = next.find(o => o.id === activeObj.id);
+      if (!movedActive) return next;
+
+      // 4. ATAMA MANTIĞI (Sadece tekli taşımalarda veya aktif obje üzerinden)
+      
+      // A) PC Etiketi Taşındıysa (Öğrenciye Atama)
+      if (activeObj.type === 'pc_label') {
+        const studentForSnap = snapTarget ? next.find(o => o.id === snapTarget.studentObjId) : null;
+        if (!isGroupDrag && studentForSnap?.studentId && activeObj.pcNo) {
+          updateStudent(studentForSnap.studentId, { pcNo: activeObj.pcNo });
+          next = next.map(o => {
+            if (o.id === activeObj.id) return { ...o, linkedStudentId: studentForSnap.studentId! };
+            if (o.type === 'pc_label' && o.linkedStudentId === studentForSnap.studentId && o.id !== activeObj.id) {
+              return { ...o, linkedStudentId: '' };
+            }
+            return o;
+          });
+        }
+      }
+
+      // B) Öğrenci Kartı Taşındıysa (PC Etiketine Snap veya Ayrılma)
+      else if (activeObj.type === 'student') {
+        if (snapTarget && !isGroupDrag) {
+          const targetLabel = next.find(o => o.id === snapTarget.studentObjId);
+          if (targetLabel && activeObj.studentId) {
+            const newPos = getPcSnapPosition(movedActive, snapTarget.side);
+            next = next.map(o => {
+              if (o.id === targetLabel.id) return { ...o, linkedStudentId: activeObj.studentId!, x: Math.round(newPos.x), y: Math.round(newPos.y) };
+              if (o.type === 'pc_label' && o.linkedStudentId === activeObj.studentId && o.id !== targetLabel.id) return { ...o, linkedStudentId: '' };
+              return o;
+            });
+            updateStudent(activeObj.studentId, { pcNo: targetLabel.pcNo ?? '' });
+          }
+        } else if (!isGroupDrag && activeObj.studentId) {
+          const currentLabel = next.find(o => o.type === 'pc_label' && o.linkedStudentId === activeObj.studentId);
+          if (currentLabel) {
+            const dist = Math.sqrt((movedActive.x - currentLabel.x)**2 + (movedActive.y - currentLabel.y)**2);
+            if (dist > 150) { 
+              next = next.map(o => o.id === currentLabel.id ? { ...o, linkedStudentId: '' } : o);
+              updateStudent(activeObj.studentId, { pcNo: '' });
+            }
+          }
+        }
+      }
+
+      return next;
+    });
+
+    // 6. Çoklu Taşıma Onay Diyaloğu (Özel Modal)
+    if (isGroupDrag && selectedIds.length > 1) {
+      const anyNearLabel = selectedIds.some(sid => {
+        const studentObj = objects.find(o => o.id === sid && o.type === 'student');
+        if (!studentObj) return false;
+        return !!computeStudentToLabelSnapTarget(studentObj.x + finalDx, studentObj.y + finalDy, objects);
+      });
+
+      if (anyNearLabel) {
+        setIdsForAssignment([...selectedIds]);
+        setShowAssignmentConfirm(true);
+      }
+    }
   }
 
   // Sayfa yükleniyorsa
@@ -1055,7 +1039,61 @@ export function SeatingPlanPage() {
   }
 
   return (
-    <Layout title={`${course?.dersAdi} - Oturma Planı`} showBack showLogout={false}>
+    <Layout 
+      title={`${course?.dersAdi} - Oturma Planı`} 
+      showBack 
+      showLogout={false}
+      rightAction={
+        <div className="relative pointer-events-auto" ref={toolbarRef}>
+          <Button 
+            variant="ghost" 
+            size="icon" 
+            onClick={() => setIsToolbarOpen(!isToolbarOpen)} 
+            className={`text-slate-800 transition-all ${isToolbarOpen ? 'bg-slate-100' : 'hover:bg-slate-100 active:scale-95'}`} 
+            title="Ayarlar"
+          >
+            <Settings className={`w-5 h-5 transition-transform duration-500 ${isToolbarOpen ? 'rotate-90' : ''}`} />
+          </Button>
+
+          {/* Ayarlar Dropdown Menu */}
+          <div className={`absolute top-full mt-2 right-0 z-50 transition-all duration-300 ease-out origin-top-right flex flex-col ${isToolbarOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-4 pointer-events-none'}`}>
+            <div className="flex flex-col bg-white border border-slate-200 shadow-2xl rounded-2xl p-1.5 gap-1 items-stretch w-[160px]">
+               <Button variant="ghost" onClick={addEmptyDesk} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-slate-100 hover:text-slate-800 transition-colors">
+                 <Plus className="w-4 h-4 text-slate-500" />
+                 <span className="text-[11px] font-bold tracking-wide uppercase">Sıra Ekle</span>
+               </Button>
+
+               <Button variant="ghost" onClick={addEmptyObject} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-slate-100 hover:text-slate-800 transition-colors">
+                 <Plus className="w-4 h-4 text-slate-500" />
+                 <span className="text-[11px] font-bold tracking-wide uppercase">Obje Ekle</span>
+               </Button>
+
+               <div className="w-full h-px bg-slate-100 my-0.5" />
+
+               <Button variant="ghost" onClick={applyLabLayout} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-blue-50 hover:text-blue-700 transition-colors">
+                 <LabDotsIcon className="w-4 h-4 opacity-70" />
+                 <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Lab Düzeni</span>
+               </Button>
+
+               <Button variant="ghost" onClick={handleReset} disabled={saving} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-red-50 hover:text-red-700 transition-colors">
+                 <RotateCcw className="w-4 h-4" />
+                 <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Sınıf Düzeni</span>
+               </Button>
+
+               <Button variant="ghost" onClick={clearAll} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-red-50 hover:text-red-700 transition-colors">
+                 <Trash2 className="w-4 h-4" />
+                 <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Temizle</span>
+               </Button>
+
+               <Button variant="default" onClick={handleSave} disabled={saving} className="h-9 px-3 mt-1 flex items-center justify-start gap-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white shadow-md transition-all">
+                 {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                 <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Kaydet</span>
+               </Button>
+            </div>
+          </div>
+        </div>
+      }
+    >
       <div className="absolute inset-0 top-14 bg-[#e5e7eb] overflow-hidden flex flex-col">
         {/* Canvas Alanı */}
         <div ref={canvasContainerRef} className="flex-1 relative h-full w-full bg-[#cbd5e1]/40 touch-none">
@@ -1070,15 +1108,6 @@ export function SeatingPlanPage() {
               <span className="truncate max-w-[140px]">{activeApplicationAd}</span>
             </div>
           )}
-
-          {/* Toplu Seçim Araç Çubuğu */}
-          <div className={`absolute top-14 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 backdrop-blur-md border border-slate-700 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-4 transition-all duration-300 origin-top ${isSelectionMode ? 'translate-y-0 opacity-100 scale-100' : '-translate-y-8 opacity-0 scale-95 pointer-events-none'}`}>
-            <span className="text-[11px] font-semibold">{selectedIds.length} obje seçildi</span>
-            <div className="w-px h-4 bg-slate-600" />
-            <button onClick={() => { setIsSelectionMode(false); setSelectedIds([]); }} className="text-[10px] font-bold text-amber-400 hover:text-amber-300 transition-colors tracking-widest px-1">
-              İPTAL
-            </button>
-          </div>
 
           <TransformWrapper
             minScale={0.1}
@@ -1174,95 +1203,39 @@ export function SeatingPlanPage() {
                 <>
                   <AutoFitter onFit={handleHome} loaded={!courseLoading && !studentsLoading && objects.length > 0} layoutVersion={layoutVersion} />
                   
-                  {/* Alt Orta Ergonomik Zoom Butonları */}
-                  <div className="absolute bottom-32 left-1/2 -translate-x-1/2 z-40 flex flex-row items-center pointer-events-auto">
-                    <div className="flex flex-row bg-slate-400/20 hover:bg-slate-400/30 backdrop-blur-md border border-slate-400/30 rounded-full overflow-hidden transition-all text-slate-700 shadow-sm">
-                      <button onClick={() => handleZoomStep(0.85)} className="w-16 h-12 flex items-center justify-center hover:bg-black/10 transition-all border-r border-slate-400/30" title="Uzaklaştır">
-                        <Minus className="w-7 h-7" />
-                      </button>
-                      <button onClick={() => handleZoomStep(1.15)} className="w-16 h-12 flex items-center justify-center hover:bg-black/10 transition-all" title="Yakınlaştır">
-                        <Plus className="w-7 h-7" />
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Sol Üst Buton Grubu */}
+                  {/* Üst Sol Buton Grubu */}
                   <div className="absolute left-4 top-4 z-40 flex flex-row gap-2">
-                    <div className="shrink-0 flex flex-row bg-white/70 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl overflow-hidden pointer-events-auto">
+                    {/* Düzen Butonları */}
+                    <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl overflow-hidden pointer-events-auto transition-all">
                       <button onClick={applyClassroomLayout} className="w-10 h-10 flex items-center justify-center text-slate-800 hover:bg-white transition-all group border-r border-slate-200/50" title="Sınıf Düzeni">
-                        <LayoutGrid className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                        <ClassroomDotsIcon className="w-5 h-5 group-hover:scale-110 transition-transform opacity-70" />
                       </button>
                       <button onClick={applyLabLayout} className="w-10 h-10 flex items-center justify-center text-slate-800 hover:bg-white transition-all group" title="Lab Düzeni">
-                        <Monitor className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                        <LabDotsIcon className="w-5 h-5 group-hover:scale-110 transition-transform opacity-70" />
                       </button>
                     </div>
 
-                    <button disabled={history.length === 0} onClick={handleUndo} className="shrink-0 w-10 h-10 flex items-center justify-center bg-white/70 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl text-slate-800 hover:bg-white transition-all group pointer-events-auto disabled:opacity-50 disabled:cursor-not-allowed" title="Geri Al">
+                    {/* Zoom Butonları */}
+                    <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl overflow-hidden pointer-events-auto transition-all">
+                      <button onClick={() => handleZoomStep(0.85)} className="w-10 h-10 flex items-center justify-center text-slate-800 hover:bg-white transition-all group border-r border-slate-200/50" title="Uzaklaştır">
+                        <ZoomOut className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                      </button>
+                      <button onClick={() => handleZoomStep(1.15)} className="w-10 h-10 flex items-center justify-center text-slate-800 hover:bg-white transition-all group" title="Yakınlaştır">
+                        <ZoomIn className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                      </button>
+                    </div>
+
+                    <button disabled={history.length === 0} onClick={handleUndo} className="shrink-0 w-10 h-10 flex items-center justify-center bg-white/80 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl text-slate-800 hover:bg-white transition-all group pointer-events-auto disabled:opacity-50 disabled:cursor-not-allowed" title="Geri Al">
                       <Undo2 className="w-5 h-5 group-hover:-rotate-12 transition-transform" />
                     </button>
+                  </div>
 
-                    {/* Araçlar Dropdown */}
-                    <div className="relative pointer-events-auto" ref={toolbarRef}>
-                      <button onClick={() => setIsToolbarOpen(!isToolbarOpen)} className={`shrink-0 w-10 h-10 flex items-center justify-center backdrop-blur-md shadow-lg rounded-2xl transition-all group ${isToolbarOpen ? 'bg-white border text-primary border-slate-200' : 'bg-white/70 border border-white/60 text-slate-800 hover:bg-white'}`} title="Araçlar">
-                        <Wrench className="w-5 h-5 group-hover:scale-110 transition-transform" />
-                      </button>
-
-                      {/* Dropdown Menu */}
-                      <div className={`absolute top-full mt-2 left-0 transition-all duration-300 ease-out origin-top-left flex flex-col ${isToolbarOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-4 pointer-events-none'}`}>
-                        <div className="flex flex-col bg-white/90 backdrop-blur-md border border-slate-200/50 shadow-xl rounded-2xl p-1.5 gap-1 items-stretch w-[140px]">
-                           <Button variant="ghost" onClick={addEmptyDesk} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-slate-100 hover:text-slate-800 transition-colors">
-                             <Plus className="w-4 h-4 text-slate-500" />
-                             <span className="text-[11px] font-bold tracking-wide">SIRA EKLE</span>
-                           </Button>
-
-                           <Button variant="ghost" onClick={addEmptyObject} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-slate-100 hover:text-slate-800 transition-colors">
-                             <Plus className="w-4 h-4 text-slate-500" />
-                             <span className="text-[11px] font-bold tracking-wide">OBJE EKLE</span>
-                           </Button>
-
-                           <div className="w-full h-px bg-slate-200/70 my-0.5" />
-
-                           <Button variant="ghost" onClick={applyLabLayout} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-blue-50 hover:text-blue-700 transition-colors">
-                             <Monitor className="w-4 h-4" />
-                             <span className="text-[11px] font-bold tracking-wide mt-[1px]">LAB DÜZENİ</span>
-                           </Button>
-
-                           <Button variant="ghost" onClick={handleReset} disabled={saving} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-red-50 hover:text-red-700 transition-colors">
-                             <RotateCcw className="w-4 h-4" />
-                             <span className="text-[11px] font-bold tracking-wide mt-[1px]">SIFIRLA</span>
-                           </Button>
-
-                           <Button variant="ghost" onClick={clearAll} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-red-50 hover:text-red-700 transition-colors">
-                             <Trash2 className="w-4 h-4" />
-                             <span className="text-[11px] font-bold tracking-wide mt-[1px]">PLAN TEMİZLE</span>
-                           </Button>
-
-                           <Button variant="default" onClick={handleSave} disabled={saving} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white shadow-md transition-all">
-                             {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                             <span className="text-[11px] font-bold tracking-wide mt-[1px]">KAYDET</span>
-                           </Button>
-                        </div>
-                      </div>
-                    </div>
-
-                    <button 
-                      onClick={() => {
-                        if (isSelectionMode) {
-                          setIsSelectionMode(false);
-                          setSelectedIds([]);
-                        } else {
-                          setIsSelectionMode(true);
-                        }
-                      }} 
-                      className={`shrink-0 h-10 px-3 flex items-center gap-2 rounded-2xl backdrop-blur-md shadow-lg transition-all pointer-events-auto border ${
-                        isSelectionMode 
-                          ? 'bg-primary text-white border-primary active:scale-95' 
-                          : 'bg-white/70 border-white/60 text-slate-800 hover:bg-white active:scale-95'
-                      }`} 
-                      title="Çoklu Seçim Modu"
-                    >
-                      <MousePointer2 className={`w-4 h-4 ${isSelectionMode ? 'fill-white' : ''}`} />
-                      <span className="text-[11px] font-bold tracking-wide">ÇOKLU SEÇİM</span>
+                  {/* Çoklu Seçim Araç Çubuğu */}
+                  <div className={`absolute top-14 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 backdrop-blur-md border border-slate-700 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-4 transition-all duration-300 origin-top ${isSelectionMode ? 'translate-y-4 opacity-100 scale-100' : '-translate-y-8 opacity-0 scale-95 pointer-events-none'}`}>
+                    <span className="text-[11px] font-semibold">{selectedIds.length} obje seçildi</span>
+                    <div className="w-px h-4 bg-slate-600" />
+                    <button onClick={() => { setIsSelectionMode(false); setSelectedIds([]); }} className="text-[10px] font-bold text-amber-400 hover:text-amber-300 transition-colors tracking-widest px-1">
+                      İPTAL
                     </button>
                   </div>
 
@@ -1317,6 +1290,7 @@ export function SeatingPlanPage() {
                               onCameraOpen={openCameraForStudent}
                               onFileUpload={handleFileUpload}
                               onSelectionToggle={() => {
+                                if (!isSelectionMode) setIsSelectionMode(true);
                                 setSelectedIds((prev) => 
                                   prev.includes(obj.id) ? prev.filter(id => id !== obj.id) : [...prev, obj.id]
                                 )
@@ -1370,8 +1344,86 @@ export function SeatingPlanPage() {
           if (numpadOpenFor) handleScoreChange(numpadOpenFor, val)
         }}
       />
+
+      {/* Çoklu Taşıma Atama Onay Modalı */}
+      <AssignmentConfirmModal 
+        isOpen={showAssignmentConfirm}
+        onClose={() => setShowAssignmentConfirm(false)}
+        onConfirm={() => {
+          setShowAssignmentConfirm(false);
+          const targetIds = idsForAssignment;
+          
+          let next = [...objects];
+          let changedCount = 0;
+          
+          targetIds.forEach(sid => {
+            const studentObj = next.find(o => o.id === sid && o.type === 'student');
+            if (!studentObj || !studentObj.studentId) return;
+            const nearest = computeStudentToLabelSnapTarget(studentObj.x, studentObj.y, next);
+            if (nearest) {
+              const labelObj = next.find(o => o.id === nearest.labelId);
+              if (labelObj) {
+                const snapPos = getPcSnapPosition(studentObj, nearest.side);
+                changedCount++;
+                next = next.map(o => {
+                  if (o.id === labelObj.id) return { ...o, linkedStudentId: studentObj.studentId!, x: Math.round(snapPos.x), y: Math.round(snapPos.y) };
+                  if (o.type === 'pc_label' && o.linkedStudentId === studentObj.studentId && o.id !== labelObj.id) return { ...o, linkedStudentId: '' };
+                  return o;
+                });
+                updateStudent(studentObj.studentId, { pcNo: labelObj.pcNo ?? '' });
+              }
+            }
+          });
+
+          if (changedCount > 0) {
+            setObjects(next);
+            toast({ 
+              title: 'Masa Numaraları Atandı', 
+              description: `${changedCount} öğrenci için otomatik atama yapıldı.` 
+            });
+          }
+        }}
+      />
     </Layout>
   )
+}
+
+function AssignmentConfirmModal({ isOpen, onClose, onConfirm }: { isOpen: boolean, onClose: () => void, onConfirm: () => void }) {
+  if (!isOpen) return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-300">
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md" onClick={onClose} />
+      <div className="bg-white rounded-[32px] shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden relative animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
+        <div className="p-8 flex flex-col items-center text-center gap-6">
+          <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center">
+            <LayoutPanelTop className="w-8 h-8 text-blue-600" />
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xl font-bold text-slate-800">Masa Numarası Atansın mı?</h3>
+            <p className="text-sm text-slate-500 leading-relaxed px-4">
+              Çoklu taşımada masa numaraları otomatik atanmaz. Öğrencilere kapsama alanındaki en yakın masa numaraları atansın mı?
+            </p>
+          </div>
+          <div className="flex flex-col w-full gap-3 mt-2">
+            <Button 
+              onClick={onConfirm}
+              className="h-12 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-lg shadow-blue-200 active:scale-95 transition-all"
+            >
+              Evet, Atansın
+            </Button>
+            <Button 
+              variant="ghost"
+              onClick={onClose}
+              className="h-12 w-full text-slate-500 font-bold rounded-2xl hover:bg-slate-50 active:scale-95 transition-all"
+            >
+              Hayır, Kalsın
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
 }
 
 function DroppableCanvas({ children, onClick }: { children: React.ReactNode, onClick?: (e: React.MouseEvent) => void }) {

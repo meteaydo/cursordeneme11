@@ -7,6 +7,7 @@ import CoursesPage from '@/pages/CoursesPage'
 import CourseDetailPage from '@/pages/CourseDetailPage'
 import StudentProfilePage from '@/pages/StudentProfilePage'
 import { SeatingPlanPage } from '@/pages/SeatingPlanPage'
+import PWABadge from '@/components/PWABadge'
 
 export default function App() {
   return (
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="*" element={<Navigate to="/courses" replace />} />
         </Routes>
         <Toaster />
+        <PWABadge />
       </AuthProvider>
     </BrowserRouter>
   )

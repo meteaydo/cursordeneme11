@@ -59,7 +59,7 @@ export function useCourses() {
   }
 
   const updateCourse = async (id: string, data: Partial<Course>) => {
-    updateDoc(doc(db, 'courses', id), data).catch(console.error)
+    return updateDoc(doc(db, 'courses', id), data)
   }
 
   const deleteCourse = async (id: string) => {

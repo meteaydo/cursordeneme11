@@ -83,27 +83,52 @@ export function DraggableItem({
 
   const handlePointerDown = (e: React.PointerEvent) => {
     clickStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() }
+    
+    // 2 saniye basılı tutma timer'ını başlat (Seçim moduna girmek için)
+    if (!isExpanded && item.type === 'student' && !isSelectionMode) {
+      longPressTimer.current = setTimeout(() => {
+        if (onSelectionToggle) {
+          onSelectionToggle()
+          // Haptic Feedback (Sadece gerçekten aktifse ve destekleniyorsa)
+          try {
+            if (typeof navigator !== 'undefined' && navigator.vibrate) {
+              // @ts-ignore - navigator.userActivation modern tarayıcılarda vardır
+              if (!navigator.userActivation || navigator.userActivation.isActive) {
+                navigator.vibrate(50);
+              }
+            }
+          } catch (e) { /* ignore */ }
+        }
+      }, 2000)
+    }
+
     if (!isExpanded && listeners?.onPointerDown) {
       listeners.onPointerDown(e as any)
     }
   }
 
   const handlePointerUp = (e: React.PointerEvent) => {
-    if (longPressTimer.current) clearTimeout(longPressTimer.current)
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+    
     if (!clickStartRef.current || isDragging || item.type !== 'student') return
     const dx = Math.abs(e.clientX - clickStartRef.current.x)
     const dy = Math.abs(e.clientY - clickStartRef.current.y)
     const dt = Date.now() - clickStartRef.current.time
-    if (dx < 10 && dy < 10 && dt < 450) {
-      e.stopPropagation()
-      if (isSelectionMode) {
-        if (onSelectionToggle) onSelectionToggle()
-      } else {
-        // Ghost click (hayalet tıklama) sorununu engellemek için mount işlemini kısa süre geciktiriyoruz.
-        // Aksi halde tarayıcının oluşturduğu native "click" eventi, hemen o anda mount olan overlay butonlarına (kamera vb.) denk gelebiliyor.
-        setTimeout(() => {
-          setIsExpanded(p => !p)
-        }, 10)
+    
+    // Eğer 2 saniyeyi doldurmadan bıraktıysa ve hareket etmediyse tıklama işlemi
+    if (dx < 10 && dy < 10 && dt < 2000) {
+      if (dt < 450) { // Kısa tıklama
+        e.stopPropagation()
+        if (isSelectionMode) {
+          if (onSelectionToggle) onSelectionToggle()
+        } else {
+          setTimeout(() => {
+            setIsExpanded(p => !p)
+          }, 10)
+        }
       }
     }
     clickStartRef.current = null

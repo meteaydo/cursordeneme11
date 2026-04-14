@@ -102,11 +102,12 @@ export function useStudents(courseId: string) {
         if (conflictOldPcNo.trim() !== '' && !conflictEskiPcNolari.includes(conflictOldPcNo)) {
           const updatedConflictEskiPcNolari = [...conflictEskiPcNolari, conflictOldPcNo];
           const conflictRef = doc(db, 'courses', courseId, 'students', conflictStudent.id);
-          batch.update(conflictRef, { pcNo: oldPcNo, eskiPcNolari: updatedConflictEskiPcNolari });
+          // TAKAS KAPATILDI: Çakışan öğrencinin numarası boşaltılır (diğerinin eski numarasını almaz)
+          batch.update(conflictRef, { pcNo: '', eskiPcNolari: updatedConflictEskiPcNolari });
         } else {
-          // Çakışan öğrenciye, bizim öğrencimizin ESKİ numarasını ata (Takas)
+          // Çakışan öğrenciyi boşa çıkar
           const conflictRef = doc(db, 'courses', courseId, 'students', conflictStudent.id);
-          batch.update(conflictRef, { pcNo: oldPcNo });
+          batch.update(conflictRef, { pcNo: '' });
         }
       }
     }

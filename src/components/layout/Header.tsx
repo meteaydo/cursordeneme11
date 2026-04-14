@@ -4,13 +4,11 @@ import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
 
 interface HeaderProps {
-  title: string
-  showBack?: boolean
-  backTo?: string
   showLogout?: boolean
+  rightAction?: React.ReactNode
 }
 
-export function Header({ title, showBack = false, backTo, showLogout = true }: HeaderProps) {
+export function Header({ title, showBack = false, backTo, showLogout = true, rightAction }: HeaderProps) {
   const navigate = useNavigate()
   const { logout, user } = useAuth()
 
@@ -30,23 +28,18 @@ export function Header({ title, showBack = false, backTo, showLogout = true }: H
           )}
         </div>
         
-        <h1 className="absolute left-1/2 -translate-x-1/2 font-semibold text-base truncate text-center uppercase tracking-wide w-[60%]">
+        <h1 className="absolute left-1/2 -translate-x-1/2 font-semibold text-[13px] truncate text-center uppercase tracking-[0.15em] w-[60%] text-slate-800">
           {title}
         </h1>
 
-        <div className="flex-1 flex items-center justify-end min-w-10">
+        <div className="flex-1 flex items-center justify-end min-w-10 gap-2">
+          {rightAction}
           {user && showLogout && (
             <div className="flex items-center gap-1">
-              <span className="text-xs text-muted-foreground hidden sm:block truncate max-w-[120px]">
-                {user.displayName ?? user.email}
-              </span>
-              <Button variant="ghost" size="icon" onClick={logout} title="Çıkış yap">
+              <Button variant="ghost" size="icon" onClick={logout} title="Çıkış yap" className="text-slate-500">
                 <LogOut className="h-4 w-4" />
               </Button>
             </div>
-          )}
-          {!showBack && !user && (
-            <User className="h-5 w-5 text-muted-foreground" />
           )}
         </div>
       </div>
