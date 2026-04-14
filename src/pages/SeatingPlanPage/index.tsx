@@ -90,6 +90,7 @@ class SmartTouchSensor extends TouchSensor {
     {
       eventName: 'onTouchStart' as const,
       handler: ({ nativeEvent: event }: { nativeEvent: TouchEvent }) => {
+        // Eğer ekranda birden fazla parmak varsa (zoom girişimi), sürükleme hiç başlamasın
         if (event.touches.length > 1) return false;
         return true;
       },
@@ -173,16 +174,23 @@ export function SeatingPlanPage() {
   // activeId değiştiğinde ref'i güncelle (wheel closure'da stale olmasın)
   useEffect(() => { activeIdRef.current = activeId; }, [activeId]);
 
-  // Çift parmak (zoom) başladığı anda eğer bir obje sürükleniyorsa sürüklemeyi iptal et
+  // Çift parmak (zoom) başladığı anda sürüklemeyi (aktif veya beklemede) iptal et
   useEffect(() => {
     const handleTouchStart = (e: TouchEvent) => {
-      if (e.touches.length > 1 && activeIdRef.current) {
-        // dnd-kit Escape tuşu ile sürüklemeyi iptal eder
-        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+      if (e.touches.length > 1) {
+        // dnd-kit dâhili sensorlerini ve bekleyen delay timer'larını iptal etmek için Escape simülasyonu
+        window.dispatchEvent(new KeyboardEvent('keydown', { 
+          key: 'Escape', 
+          code: 'Escape', 
+          keyCode: 27, 
+          which: 27, 
+          bubbles: true 
+        }));
       }
     };
-    window.addEventListener('touchstart', handleTouchStart, { passive: true });
-    return () => window.removeEventListener('touchstart', handleTouchStart);
+    // Capture: true ile her şeyden önce yakalayalım
+    window.addEventListener('touchstart', handleTouchStart, { passive: true, capture: true });
+    return () => window.removeEventListener('touchstart', handleTouchStart, { capture: true } as any);
   }, []);
 
   // Custom native wheel handler — milimetrik hassasimette, cursor merkezli zoom
@@ -743,7 +751,12 @@ export function SeatingPlanPage() {
   // DND Handlers
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(SmartTouchSensor, { activationConstraint: { distance: 5 } }) 
+    useSensor(SmartTouchSensor, { 
+      activationConstraint: { 
+        delay: 500, // Pan yaparken kazara sürüklemeyi önlemek için 0.5sn bekleme (Long press)
+        tolerance: 8 // Bekleme sırasında 8px'e kadar oynamaya izin ver (mobil hassasiyeti)
+      } 
+    }) 
   )
 
   const handleDragStart = (e: DragStartEvent) => {
