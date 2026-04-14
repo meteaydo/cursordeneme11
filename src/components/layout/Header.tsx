@@ -1,9 +1,12 @@
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, LogOut, User } from 'lucide-react'
+import { ArrowLeft, LogOut } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useAuth } from '@/contexts/AuthContext'
 
 interface HeaderProps {
+  title?: string
+  showBack?: boolean
+  backTo?: string
   showLogout?: boolean
   rightAction?: React.ReactNode
 }

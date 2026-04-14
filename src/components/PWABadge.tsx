@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react'
+import { useEffect } from 'react'
 import { useRegisterSW } from 'virtual:pwa-register/react'
 
 function PWABadge() {
@@ -7,7 +7,7 @@ function PWABadge() {
     needUpdate: [needUpdate, setNeedUpdate],
     updateServiceWorker,
   } = useRegisterSW({
-    onRegistered(r) {
+    onRegistered(r: ServiceWorkerRegistration | undefined) {
       if (r) {
         // Check for updates every hour
         setInterval(() => {
@@ -15,7 +15,7 @@ function PWABadge() {
         }, 60 * 60 * 1000)
       }
     },
-    onRegisterError(error) {
+    onRegisterError(error: any) {
       console.error('SW registration error', error)
     },
   })

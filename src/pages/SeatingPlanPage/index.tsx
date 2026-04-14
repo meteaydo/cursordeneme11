@@ -27,7 +27,7 @@ import { toast } from '@/hooks/use-toast'
 import type { SeatObject, Score } from '@/types'
 import { DraggableItem } from './components/DraggableItem'
 import { SmartNumpad } from '@/components/ui/smart-numpad'
-import { Loader2, Save, RotateCcw, Plus, MousePointer2, Wrench, Undo2, Minus, Rows3, LayoutPanelTop, Trash2, ZoomIn, ZoomOut, Settings } from 'lucide-react'
+import { Loader2, Save, RotateCcw, Plus, MousePointer2, Undo2, LayoutPanelTop, Trash2, ZoomIn, ZoomOut, Settings } from 'lucide-react'
 
 
 const getObjectSize = (type: string) => {
@@ -110,6 +110,7 @@ export function SeatingPlanPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
 
+  const [initDone, setInitDone] = useState(false);
   const [objects, setObjects] = useState<SeatObject[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -414,7 +415,6 @@ export function SeatingPlanPage() {
   }
 
   // Load from firebase (sadece ilk seferde ve sınıfa yeni öğrenci geldiğinde)
-  const [initDone, setInitDone] = useState(false);
 
   useEffect(() => {
     if (!initDone && course && students.length > 0) {
