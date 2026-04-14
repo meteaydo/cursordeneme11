@@ -1371,7 +1371,8 @@ export function SeatingPlanPage() {
 
                         {objects.map((obj) => {
                           const activeUUID = activeId?.replace('canvas_', '');
-                          const isMainDraggingSelected = activeId !== null && isSelectionMode && activeUUID && selectedIds.includes(activeUUID);
+                          const isMainDraggingSelected = !!(activeId !== null && isSelectionMode && activeUUID && selectedIds.includes(activeUUID));
+
                           
                           let isFollowerDrag = isMainDraggingSelected && 
                                                selectedIds.includes(obj.id) && 
