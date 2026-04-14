@@ -4,7 +4,7 @@ import { useRegisterSW } from 'virtual:pwa-register/react'
 function PWABadge() {
   const {
     offlineReady: [offlineReady, setOfflineReady],
-    needUpdate: [needUpdate, setNeedUpdate],
+    needRefresh: [needRefresh, setNeedRefresh],
     updateServiceWorker,
   } = useRegisterSW({
     onRegistered(r: ServiceWorkerRegistration | undefined) {
@@ -37,10 +37,10 @@ function PWABadge() {
 
   const close = () => {
     setOfflineReady(false)
-    setNeedUpdate(false)
+    setNeedRefresh(false)
   }
 
-  if (!offlineReady && !needUpdate) return null
+  if (!offlineReady && !needRefresh) return null
 
   return (
     <div
@@ -66,10 +66,10 @@ function PWABadge() {
           </div>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-semibold text-slate-900 dark:text-white">
-              {needUpdate ? 'Yeni Sürüm Hazır!' : 'Çevrimdışı Kullanılabilir'}
+              {needRefresh ? 'Yeni Sürüm Hazır!' : 'Çevrimdışı Kullanılabilir'}
             </p>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              {needUpdate 
+              {needRefresh 
                 ? 'Yeni özellikleri kullanmak için uygulamayı yenileyin.' 
                 : 'Uygulama artık internet olmadan da çalışabilir.'}
             </p>
@@ -84,7 +84,7 @@ function PWABadge() {
           </button>
         </div>
         
-        {needUpdate && (
+        {needRefresh && (
           <button
             onClick={() => updateServiceWorker(true)}
             className="w-full py-2.5 px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium rounded-xl shadow-lg shadow-indigo-600/20 transition-all active:scale-95"
