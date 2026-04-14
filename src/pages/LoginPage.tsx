@@ -7,6 +7,8 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { BookOpen, Loader2 } from 'lucide-react'
 
+import versionRaw from '../../version.md?raw'
+
 type Mode = 'login' | 'register'
 
 export default function LoginPage() {
@@ -18,6 +20,10 @@ export default function LoginPage() {
   const [displayName, setDisplayName] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+
+  // Get last line of version.md
+  const versionLines = versionRaw.trim().split('\n')
+  const lastVersion = versionLines[versionLines.length - 1]
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -176,7 +182,17 @@ export default function LoginPage() {
             </p>
           </CardContent>
         </Card>
+
+        {/* Versiyon Bilgisi — Kartın Altında */}
+        <div className="mt-6 flex justify-center">
+          <div className="px-3 py-1 bg-white/50 backdrop-blur-sm rounded-full border border-gray-200/50 shadow-sm">
+            <span className="text-[10px] font-bold text-gray-400 tracking-wider uppercase">
+              Versiyon: {lastVersion}
+            </span>
+          </div>
+        </div>
       </div>
     </div>
+
   )
 }
