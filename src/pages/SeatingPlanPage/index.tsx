@@ -699,7 +699,6 @@ export function SeatingPlanPage() {
     const baseX = 750;
     const baseY = 650;
     const size = 72;
-    const centerLab = baseX + 3.5 * size;
     const spots: {x: number, y: number}[] = [];
     for (let row = 9; row >= 1; row--) spots.push({ x: baseX, y: baseY + row * size });
     for (let col = 1; col <= 6; col++) spots.push({ x: baseX + col * size, y: baseY });
