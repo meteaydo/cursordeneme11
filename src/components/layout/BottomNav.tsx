@@ -78,7 +78,7 @@ export function BottomNav({ onSearchOpen, leftAligned = false }: BottomNavProps)
 
       {/* Mobil Görünüm (Her zaman görünür) */}
       <div className={cn(
-        "md:hidden relative pointer-events-auto w-[224px] flex items-center justify-between px-6 h-[52px] rounded-[1.75rem] border border-white/10 bg-slate-900/60 backdrop-blur-xl shadow-2xl shadow-black/20",
+        "md:hidden absolute pointer-events-auto w-[224px] flex items-center justify-between px-6 h-[52px] rounded-[1.75rem] border border-white/10 bg-slate-900/60 backdrop-blur-xl shadow-2xl shadow-black/20",
         leftAligned ? "left-4 ml-0" : "left-1/2 -translate-x-1/2"
       )}>
         <button onClick={() => navigate('/courses')} className={cn('flex flex-col items-center justify-center w-9 h-9 transition-all duration-200 active:scale-95 rounded-full', isCoursesActive ? 'text-white' : 'text-slate-300/60')}>

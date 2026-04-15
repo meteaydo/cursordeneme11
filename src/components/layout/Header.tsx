@@ -33,7 +33,7 @@ export function Header({
   }
 
   return (
-    <header className={`sticky top-0 z-40 bg-white border-b border-border shadow-sm ${hideTitleOnDesktop ? 'md:bg-transparent md:border-none md:shadow-none md:pointer-events-none' : ''}`}>
+    <header className={`sticky top-0 z-60 bg-white border-b border-border shadow-sm ${hideTitleOnDesktop ? 'md:bg-transparent md:border-none md:shadow-none md:pointer-events-none' : ''}`}>
       <div className={`${hideTitleOnDesktop ? 'max-w-none md:px-[50px]' : 'container max-w-2xl mx-auto'} flex items-center justify-between h-14 px-4 gap-2 relative`}>
         <div className="flex-1 flex items-center justify-start min-w-10 pointer-events-auto gap-1">
           {showBack && (

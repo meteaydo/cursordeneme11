@@ -9,3 +9,4 @@ v1.6 14.04.2026 15:34 - PC numaralarının öğrencilerle birlikte hareket etmes
 v1.7 14.04.2026 16:01 - Mobil cihazlarda klavye kapatma sorunları için dialoglar üst kısma alındı ve kaydırılabilir yapıldı
 v1.8 14.04.2026 16:12 - Konsol hataları düzeltildi: COOP politikası, Firebase yetki kontrolleri eklendi ve PWA yapılandırıldı
 v1.9 15.04.2026 17:15 - Oturma planı paylaşma menüsü (Excel, WhatsApp, Telegram) ve Vercel build hata düzeltmeleri (kullanılmayan değişkenlerin temizlenmesi) eklendi
+v1.10 15.04.2026 18:10 - Alt navigasyon barı merkezlendi, paylaş menüsü mobil taşma sorunları ve z-index katman hataları giderildi, WhatsApp/Telegram paylaşım butonları kaldırıldı.
