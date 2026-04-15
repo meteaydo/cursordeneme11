@@ -109,7 +109,18 @@ export default function CoursesPage() {
   }
 
   return (
-    <Layout title="Derslerim">
+    <Layout 
+      title="Derslerim"
+      rightAction={
+        <button
+          onClick={() => setOpen(true)}
+          className="hidden md:flex items-center justify-center w-10 h-10 rounded-full transition-all duration-200 bg-gradient-to-b from-blue-400 to-blue-600 text-white border-t border-blue-300/50 shadow-[inset_0_-2px_4px_rgba(0,0,0,0.3),inset_0_1px_2px_rgba(255,255,255,0.3),0_4px_8px_rgba(37,99,235,0.4)] hover:from-blue-400 hover:to-blue-500 hover:-translate-y-0.5 active:translate-y-0.5 active:shadow-[inset_0_1px_3px_rgba(0,0,0,0.4),0_1px_2px_rgba(37,99,235,0.4)] active:from-blue-500 active:to-blue-600 translate-x-1/2"
+          aria-label="Ders Ekle"
+        >
+          <Plus size={20} strokeWidth={3} className="drop-shadow-sm" />
+        </button>
+      }
+    >
       <div className="space-y-4 pb-32">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -181,10 +192,10 @@ export default function CoursesPage() {
         )}
       </div>
 
-      {/* FAB */}
+      {/* FAB - Only visible on mobile */}
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-28 right-6 w-14 h-14 rounded-full transition-all duration-200 z-30 bg-gradient-to-b from-blue-400 to-blue-600 text-white border-t border-blue-300/50 shadow-[inset_0_-4px_6px_rgba(0,0,0,0.3),inset_0_2px_4px_rgba(255,255,255,0.3),0_6px_12px_rgba(37,99,235,0.4)] hover:from-blue-400 hover:to-blue-500 hover:-translate-y-0.5 active:translate-y-1 active:shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),0_2px_4px_rgba(37,99,235,0.4)] active:from-blue-500 active:to-blue-600 flex items-center justify-center"
+        className="md:hidden fixed bottom-28 right-6 w-14 h-14 rounded-full transition-all duration-200 z-30 bg-gradient-to-b from-blue-400 to-blue-600 text-white border-t border-blue-300/50 shadow-[inset_0_-4px_6px_rgba(0,0,0,0.3),inset_0_2px_4px_rgba(255,255,255,0.3),0_6px_12px_rgba(37,99,235,0.4)] hover:from-blue-400 hover:to-blue-500 hover:-translate-y-0.5 active:translate-y-1 active:shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),0_2px_4px_rgba(37,99,235,0.4)] active:from-blue-500 active:to-blue-600 flex items-center justify-center"
         aria-label="Ders Ekle"
       >
         <Plus size={28} strokeWidth={2.5} className="drop-shadow-md" />

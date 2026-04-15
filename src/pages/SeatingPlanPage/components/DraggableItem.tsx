@@ -39,6 +39,8 @@ export function DraggableItem({
   })
 
   const isPcLabel = item.type === 'pc_label';
+  const isStudent = item.type === 'student' || item.type === 'empty_desk';
+  const baseZIndex = isPcLabel ? 10 : (isStudent ? 20 : 5);
 
   useEffect(() => {
     if (isDragging) {
@@ -70,11 +72,11 @@ export function DraggableItem({
 
   const style = transform ? {
     transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
-    zIndex: isDragging ? (isPcLabel ? 55 : 50) : (isExpanded ? 40 : (isPcLabel ? 20 : 10)),
+    zIndex: isDragging ? (isPcLabel ? 55 : 50) : (isExpanded ? 40 : baseZIndex),
     opacity: isDragging ? (isPcLabel ? 1 : 0.8) : 1,
   } : {
     transform: isFollowerDrag ? `translate3d(var(--drag-x, 0px), var(--drag-y, 0px), 0)` : undefined,
-    zIndex: isFollowerDrag ? 49 : (isExpanded ? 40 : (isPcLabel ? 20 : 10)),
+    zIndex: isFollowerDrag ? 49 : (isExpanded ? 40 : baseZIndex),
     opacity: isFollowerDrag ? 0.9 : 1,
   }
 
@@ -210,7 +212,7 @@ export function DraggableItem({
           }}
         >
           <div className="flex flex-col items-center gap-1">
-            <div className="bg-primary text-white font-black text-4xl px-5 py-2.5 rounded-2xl shadow-2xl shadow-primary/60 border-2 border-white/50 animate-in zoom-in-90 duration-100">
+            <div className="bg-primary text-white font-black text-4xl px-5 py-2.5 rounded-2xl shadow-2xl shadow-primary/60 border-2 border-white/15 animate-in zoom-in-90 duration-100">
               {item.pcNo}
             </div>
             {/* ok işaretçisi */}
@@ -319,8 +321,8 @@ function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, has
     return (
       <div className={`w-[60px] h-[34px] backdrop-blur-sm border-2 rounded-xl flex items-center justify-center cursor-grab active:cursor-grabbing select-none transition-all duration-200 ${
         isTargeted 
-          ? 'bg-blue-100 border-primary scale-110 shadow-lg shadow-primary/30 rotate-6' 
-          : 'bg-white/70 border-slate-400 shadow-sm hover:bg-white/90 hover:shadow-md'
+          ? 'bg-blue-100 border-primary/15 scale-110 shadow-lg shadow-primary/30 rotate-6' 
+          : 'bg-white/70 border-slate-400/15 shadow-sm hover:bg-white/90 hover:shadow-md'
       }`}>
         <span className={`font-black text-[22px] leading-none transition-colors ${
           isTargeted ? 'text-primary' : (isLinked ? 'text-slate-700' : 'text-slate-400')

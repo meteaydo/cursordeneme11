@@ -108,26 +108,26 @@ export default function CourseDetailPage() {
       const { id, prevTop, smoothAlign } = scrollAnchorRef.current
       const el = document.querySelector(`[data-student-id="${id}"]`) as HTMLElement
       const stickyHeader = stickyHeaderRef.current
-      
+
       if (el && stickyHeader) {
         const xPoint = stickyHeader.getBoundingClientRect().bottom
         const newTop = el.getBoundingClientRect().top
-        
+
         // Elemanın DOM genişlemesiyle aşağı ne kadar itildiğini bul
         const diff = newTop - prevTop
-        
+
         // 1. Anında (instant) tersine kaydırarak atlamayı engelle (üsttekiler yukarı genişlesin)
         if (diff !== 0) {
           window.scrollBy({ top: diff, behavior: 'instant' })
         }
-        
+
         // 2. Ardından o elemanı X noktasına smooth şekilde hizala
         if (smoothAlign) {
           // Güncel top değerini tekrar alıyoruz (çünkü az önce scrollBy yaptık)
           const currentTop = el.getBoundingClientRect().top
           // Elemanın top değeri X noktasından ne kadar uzakta? (Biraz da margin payı bırakalım: - 16px)
           const yOffset = currentTop - xPoint - 16
-          
+
           if (Math.abs(yOffset) > 2) {
             requestAnimationFrame(() => {
               window.scrollBy({ top: yOffset, behavior: 'smooth' })
@@ -135,7 +135,7 @@ export default function CourseDetailPage() {
           }
         }
       }
-      
+
       // İşlem bitince sıfırla
       scrollAnchorRef.current = { id: null, prevTop: 0, smoothAlign: false }
     }
@@ -174,12 +174,12 @@ export default function CourseDetailPage() {
   const handleAppSelect = (app: Application) => {
     const stickyHeader = stickyHeaderRef.current
     const container = studentsContainerRef.current
-    
+
     if (stickyHeader && container) {
       // Sticky alanın alt çizgisini X noktası kabul et
       const xPoint = stickyHeader.getBoundingClientRect().bottom
       const rows = Array.from(container.children) as HTMLElement[]
-      
+
       // X noktasından aşağıda kalan en üstteki satırı (visibleRow) bul (-10px tolerans payı ile)
       const visibleRow = rows.find(row => {
         const rect = row.getBoundingClientRect()
@@ -198,7 +198,7 @@ export default function CourseDetailPage() {
         }
       }
     }
-    
+
     setSelectedApp(selectedApp?.id === app.id ? null : app)
   }
 
@@ -258,7 +258,7 @@ export default function CourseDetailPage() {
 
     try {
       const result = await parseStudentExcel(file)
-      
+
       // Sınıfta zaten olan öğrencileri filtrele (numaraya göre)
       const existingNos = new Set(students.map(s => s.no))
       const newStudents = result.filter(s => !existingNos.has(s.no))
@@ -378,15 +378,15 @@ export default function CourseDetailPage() {
 
   const handlePhotoDelete = async (studentId: string) => {
     if (!selectedApp) return
-    
+
     await setScore(selectedApp.id, studentId, { kameraFoto: null })
     setScores((prev) => {
       const currentStudentScore = prev[studentId]
       if (!currentStudentScore) return prev
-      
+
       const newScore = { ...currentStudentScore }
       delete newScore.kameraFoto
-      
+
       return {
         ...prev,
         [studentId]: newScore,
@@ -430,7 +430,7 @@ export default function CourseDetailPage() {
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, studentId: string) => {
     const file = e.target.files?.[0]
     if (!file || !selectedApp) return
-    
+
     setCameraStudentId(studentId)
     uploadPhoto(file, studentId)
   }
@@ -453,9 +453,9 @@ export default function CourseDetailPage() {
         docId: sId,
         field: 'kameraFoto'
       })
-      
+
       await setScore(selectedApp.id, sId, { kameraFoto: localUrl })
-      
+
       // Geçici URL'i kalıcı local URL ile değiştir
       setScores((prev) => ({
         ...prev,
@@ -475,7 +475,7 @@ export default function CourseDetailPage() {
     const filteredApps = applications.filter(
       (a) => a.tarih >= reportRange.from && a.tarih <= reportRange.to,
     )
-    
+
     const wb = new ExcelJS.Workbook()
     const ws = wb.addWorksheet('Rapor')
 
@@ -486,9 +486,11 @@ export default function CourseDetailPage() {
     for (let i = 0; i < filteredApps.length; i++) {
       ws.getColumn(4 + i).width = 15
     }
+    // Ortalama sütunu genişliği
+    ws.getColumn(4 + filteredApps.length).width = 15
 
     // Başlık
-    const totalCols = 3 + filteredApps.length
+    const totalCols = 4 + filteredApps.length
     ws.mergeCells(1, 1, 1, totalCols)
     const titleCell = ws.getCell(1, 1)
     titleCell.value = reportTitle
@@ -498,7 +500,7 @@ export default function CourseDetailPage() {
     ws.getRow(1).height = 30
 
     // Sütun Başlıkları
-    const headers = ['No', 'Ad Soyad', 'PC No', ...filteredApps.map((a) => `${a.ad}\n(${format(new Date(a.tarih), 'dd.MM.yyyy')})`)]
+    const headers = ['No', 'Ad Soyad', 'PC No', ...filteredApps.map((a) => `${a.ad}\n(${format(new Date(a.tarih), 'dd.MM.yyyy')})`), 'ORT']
     ws.addRow(headers)
 
     const headerRow = ws.getRow(2)
@@ -513,18 +515,47 @@ export default function CourseDetailPage() {
       }
     })
 
+    // Tüm puanları önceden çek (mevcut scores state'i sadece seçili uygulama içindir)
+    const allScoresData: Record<string, Record<string, Score>> = {}
+    await Promise.all(filteredApps.map(async (app) => {
+      const appScores = await getScores(app.id)
+      const studentMap: Record<string, Score> = {}
+      appScores.forEach(sc => {
+        studentMap[sc.studentId] = sc
+      })
+      allScoresData[app.id] = studentMap
+    }))
+
     // Veriler
     students.forEach((s) => {
-      const row = [
-        s.no, s.adSoyad, s.pcNo,
-        ...filteredApps.map((_a) => {
-          const puan = (scores as any)[_a.id]?.[s.id]?.puan
-          return puan !== undefined && puan !== null ? Number(puan) : ''
-        }),
-      ]
+      let sum = 0
+      let count = 0
+      
+      const applicationScores = filteredApps.map((_a) => {
+        const scoreObj = allScoresData[_a.id]?.[s.id]
+        
+        if (scoreObj?.devamsiz) {
+          return 'D'
+        }
+        
+        const puan = scoreObj?.puan
+        if (puan !== undefined && puan !== null) {
+          const numPuan = Number(puan)
+          sum += numPuan
+          count++
+          return numPuan
+        }
+        
+        return ''
+      })
+
+      const ortalama = count > 0 ? Math.round(sum / count) : ''
+      const row = [s.no, s.adSoyad, s.pcNo, ...applicationScores, ortalama]
+      
       const addedRow = ws.addRow(row)
       addedRow.height = 20
       addedRow.eachCell((cell, colNumber) => {
+        // Ortalamayı ve puanları hizala
         cell.alignment = colNumber > 3 ? { vertical: 'middle', horizontal: 'center' } : { vertical: 'middle', horizontal: 'left' }
         cell.border = {
           top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
@@ -532,14 +563,25 @@ export default function CourseDetailPage() {
           bottom: { style: 'thin', color: { argb: 'FFE5E7EB' } },
           right: { style: 'thin', color: { argb: 'FFE5E7EB' } }
         }
-        
-        // Puan renklendirme
+
+        // Puan renklendirme (D dahil değil, sadece sayılar)
         if (colNumber > 3 && typeof cell.value === 'number') {
           if (cell.value < 50) {
             cell.font = { color: { argb: 'FFEF4444' }, bold: true }
           } else if (cell.value >= 85) {
             cell.font = { color: { argb: 'FF10B981' }, bold: true }
           }
+        }
+        
+        // Devamsız (D) renklendirme
+        if (cell.value === 'D') {
+          cell.font = { color: { argb: 'FFEF4444' }, bold: true }
+        }
+
+        // Ortalama sütununa özel stil (Kalın yapalım)
+        if (colNumber === 4 + filteredApps.length) {
+          cell.font = { ...cell.font, bold: true }
+          cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } }
         }
       })
     })
@@ -559,7 +601,7 @@ export default function CourseDetailPage() {
   }
 
   return (
-    <Layout title={pageTitle} showBack backTo="/courses" showLogout={false}>
+    <Layout title={pageTitle} showBack backTo="/courses" backTitle="Dersler" showLogout={false}>
       <div className="space-y-4">
         {/* Applications Section */}
         <div ref={stickyHeaderRef} className="sticky top-14 z-30 -mx-4 px-4 py-2 -mt-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b mb-2 shadow-sm">
@@ -577,11 +619,10 @@ export default function CourseDetailPage() {
                     key={app.id}
                     onClick={() => handleAppSelect(app)}
                     onContextMenu={(e) => handleAppContextMenu(e, app)}
-                    className={`shrink-0 text-left px-3 py-2 rounded-lg border text-sm transition-all select-none active:scale-110 active:animate-pulse active:z-50 active:shadow-lg ${
-                      selectedApp?.id === app.id
-                        ? 'bg-primary text-primary-foreground border-primary'
-                        : 'bg-white border-border hover:border-primary/50'
-                    }`}
+                    className={`shrink-0 text-left px-3 py-2 rounded-lg border text-sm transition-all select-none active:scale-110 active:animate-pulse active:z-50 active:shadow-lg ${selectedApp?.id === app.id
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-white border-border hover:border-primary/50'
+                      }`}
                   >
                     <div className="font-medium">{app.ad}</div>
                     <div className={`text-xs mt-0.5 ${selectedApp?.id === app.id ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
@@ -602,31 +643,44 @@ export default function CourseDetailPage() {
 
           {/* Student Action Buttons (Sticky Row) */}
           <div className="flex items-center gap-2 mt-1.5 pt-2 border-t border-border/40">
-             <button
-               onClick={() => navigate(`/courses/${id}/seating`, { 
-                 state: selectedApp ? { applicationId: selectedApp.id, applicationAd: selectedApp.ad } : undefined 
-               })}
-               className="flex-1 h-10 rounded-xl bg-blue-50/50 border border-blue-100 flex items-center justify-center gap-2 text-[11px] font-bold text-blue-700 hover:bg-blue-100 transition-all active:scale-95 shadow-sm"
-             >
-               <LayoutGrid size={16} strokeWidth={2.5} />
-               <span>PLAN</span>
-             </button>
-             
-             <button
-               onClick={() => setReportOpen(true)}
-               className="flex-1 h-10 rounded-xl bg-blue-50/50 border border-blue-100 flex items-center justify-center gap-2 text-[11px] font-bold text-blue-700 hover:bg-blue-100 transition-all active:scale-95 shadow-sm"
-             >
-               <FileText size={16} strokeWidth={2.5} />
-               <span>RAPOR</span>
-             </button>
+            <button
+              onClick={() => navigate(`/courses/${id}/seating`, {
+                state: selectedApp ? { applicationId: selectedApp.id, applicationAd: selectedApp.ad } : undefined
+              })}
+              className="flex-1 h-10 rounded-xl bg-blue-50/50 border border-blue-100 flex items-center justify-center gap-2 text-[11px] font-bold text-blue-700 hover:bg-blue-100 transition-all active:scale-95 shadow-sm"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                {/* Sol Kanat */}
+                <rect x="3" y="18" width="4" height="4" rx="1" fill="currentColor" />
+                <rect x="3" y="11" width="4" height="4" rx="1" fill="currentColor" />
+                <rect x="3" y="4" width="4" height="4" rx="1" fill="currentColor" />
 
-             <button
-               onClick={() => setAddStudentOpen(true)}
-               className="flex-1 h-10 rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 text-white flex items-center justify-center gap-2 text-[11px] font-bold shadow-md shadow-blue-200 hover:from-blue-600 hover:to-blue-700 transition-all active:scale-95"
-             >
-               <UserPlus size={16} strokeWidth={2.5} />
-               <span>EKLE</span>
-             </button>
+                {/* Üst Kısım */}
+                <rect x="10" y="4" width="4" height="4" rx="1" fill="currentColor" />
+                <rect x="17" y="4" width="4" height="4" rx="1" fill="currentColor" />
+
+                {/* Sağ Kanat */}
+                <rect x="17" y="11" width="4" height="4" rx="1" fill="currentColor" />
+                <rect x="17" y="18" width="4" height="4" rx="1" fill="currentColor" />
+              </svg>
+              <span>Oturma<br />Düzeni</span>
+            </button>
+
+            <button
+              onClick={() => setReportOpen(true)}
+              className="flex-1 h-10 rounded-xl bg-blue-50/50 border border-blue-100 flex items-center justify-center gap-2 text-[11px] font-bold text-blue-700 hover:bg-blue-100 transition-all active:scale-95 shadow-sm"
+            >
+              <FileText size={16} strokeWidth={2.5} />
+              <span>Perform<br />Analizi</span>
+            </button>
+
+            <button
+              onClick={() => setAddStudentOpen(true)}
+              className="flex-1 h-10 rounded-xl bg-blue-50/50 border border-blue-100 flex items-center justify-center gap-2 text-[11px] font-bold text-blue-700 hover:bg-blue-100 transition-all active:scale-95 shadow-sm"
+            >
+              <UserPlus size={16} strokeWidth={2.5} />
+              <span>Öğrenci<br />Ekle</span>
+            </button>
           </div>
         </div>
 
@@ -942,160 +996,160 @@ function StudentRow({ student, selectedApp, score, scoresLoading, onScoreChange:
   return (
     <div data-student-id={dataStudentId} className="scroll-mt-[150px]">
       <Card className={score?.devamsiz ? 'border-destructive/40 bg-destructive/5' : ''}>
-      <CardContent className="p-3">
-        {/* Üst satır: avatar + isim */}
-        <div className="flex items-center gap-3">
-          <div
-            className={`w-9 h-9 flex items-center justify-center shrink-0 cursor-pointer transition-all duration-300 origin-left ${isZoomed ? 'scale-[4] z-50 shadow-xl relative rounded-md overflow-hidden bg-background' : 'rounded-full overflow-hidden bg-primary/10'}`}
-            onClick={(e) => {
-              e.stopPropagation()
-              setIsZoomed(!isZoomed)
-            }}
-            title={isZoomed ? "Küçült" : "Büyüt"}
-          >
-            {student.foto ? (
-              <OfflineImage src={student.foto} alt={student.adSoyad} className="w-full h-full object-cover" />
-            ) : (
-              <span className={`text-primary font-semibold ${isZoomed ? 'text-[5px]' : 'text-xs'}`}>
-                {student.adSoyad.split(' ').map((n) => n[0]).slice(0, 2).join('')}
-              </span>
-            )}
-          </div>
-          <div className="flex-1 min-w-0 cursor-pointer" onClick={onNavigate}>
-            <div className="font-medium text-sm truncate flex items-center gap-1.5">
-              <span className="truncate">{student.adSoyad}</span>
-              {student.bep && <span className="text-muted-foreground/50 font-normal text-xs shrink-0">(BEP)</span>}
-              {(student.behaviorStars?.yellow ?? 0) > 0 && (
-                <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-yellow-600 bg-yellow-50 px-1 py-0.5 rounded-full border border-yellow-200 shrink-0">
-                  <Star className="w-3 h-3 fill-yellow-400 text-yellow-500" />
-                  x{student.behaviorStars!.yellow}
-                </span>
-              )}
-              {(student.behaviorStars?.purple ?? 0) > 0 && (
-                <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-purple-600 bg-purple-50 px-1 py-0.5 rounded-full border border-purple-200 shrink-0">
-                  <StarOff className="w-3 h-3 text-purple-500" />
-                  x{student.behaviorStars!.purple}
+        <CardContent className="p-3">
+          {/* Üst satır: avatar + isim */}
+          <div className="flex items-center gap-3">
+            <div
+              className={`w-9 h-9 flex items-center justify-center shrink-0 cursor-pointer transition-all duration-300 origin-left ${isZoomed ? 'scale-[4] z-50 shadow-xl relative rounded-md overflow-hidden bg-background' : 'rounded-full overflow-hidden bg-primary/10'}`}
+              onClick={(e) => {
+                e.stopPropagation()
+                setIsZoomed(!isZoomed)
+              }}
+              title={isZoomed ? "Küçült" : "Büyüt"}
+            >
+              {student.foto ? (
+                <OfflineImage src={student.foto} alt={student.adSoyad} className="w-full h-full object-cover" />
+              ) : (
+                <span className={`text-primary font-semibold ${isZoomed ? 'text-[5px]' : 'text-xs'}`}>
+                  {student.adSoyad.split(' ').map((n) => n[0]).slice(0, 2).join('')}
                 </span>
               )}
             </div>
-            <div className="text-xs text-muted-foreground">
-              <span className="text-black font-medium">{student.no}</span> {student.pcNo && `· PC: ${student.pcNo}`}
+            <div className="flex-1 min-w-0 cursor-pointer" onClick={onNavigate}>
+              <div className="font-medium text-sm truncate flex items-center gap-1.5">
+                <span className="truncate">{student.adSoyad}</span>
+                {student.bep && <span className="text-muted-foreground/50 font-normal text-xs shrink-0">(BEP)</span>}
+                {(student.behaviorStars?.yellow ?? 0) > 0 && (
+                  <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-yellow-600 bg-yellow-50 px-1 py-0.5 rounded-full border border-yellow-200 shrink-0">
+                    <Star className="w-3 h-3 fill-yellow-400 text-yellow-500" />
+                    x{student.behaviorStars!.yellow}
+                  </span>
+                )}
+                {(student.behaviorStars?.purple ?? 0) > 0 && (
+                  <span className="inline-flex items-center gap-0.5 text-[10px] font-bold text-purple-600 bg-purple-50 px-1 py-0.5 rounded-full border border-purple-200 shrink-0">
+                    <StarOff className="w-3 h-3 text-purple-500" />
+                    x{student.behaviorStars!.purple}
+                  </span>
+                )}
+              </div>
+              <div className="text-xs text-muted-foreground">
+                <span className="text-black font-medium">{student.no}</span> {student.pcNo && `· PC: ${student.pcNo}`}
+              </div>
             </div>
           </div>
-        </div>
 
-        {/* Alt satır: skorlama araçları (sadece uygulama seçiliyken) */}
-        {selectedApp && (
-          <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-border/50">
-            {/* Sol: Puan + Devamsız */}
-            <div className="flex items-center gap-1.5">
-              <Input
-                type="text"
-                readOnly
-                placeholder="Puan"
-                value={score?.puan ?? ''}
-                onClick={() => onNumpadOpen(student.id)}
-                disabled={scoresLoading}
-                className="w-16 h-8 text-sm text-center cursor-pointer bg-white"
-              />
-              <Button
-                size="icon"
-                variant={score?.devamsiz ? 'destructive' : 'outline'}
-                className="h-8 w-8 text-xs font-bold"
-                onClick={() => onDevamsiz(student.id)}
-                title="Devamsız"
-              >
-                D
-              </Button>
-            </div>
-
-            {/* Sağ: Kamera + Yükle + Kısa Not */}
-            <div className="flex items-center gap-1.5">
-              {score?.kameraFoto && (
-                <>
-                  <div
-                    className="w-8 h-8 shrink-0 border border-border overflow-hidden rounded-md cursor-zoom-in"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      setIsPhotoZoomed(true)
-                    }}
-                    title="Büyüt"
-                  >
-                    <OfflineImage src={score.kameraFoto} alt="Uygulama Fotoğrafı" className="w-full h-full object-cover" />
-                  </div>
-                  
-                  <Dialog open={isPhotoZoomed} onOpenChange={setIsPhotoZoomed}>
-                    <DialogContent className="max-w-[90vw] md:max-w-2xl bg-black/95 border-none p-0 overflow-visible shadow-2xl [&>button]:hidden">
-                      <DialogTitle className="sr-only">Fotoğrafı Büyüt</DialogTitle>
-                      <DialogDescription className="sr-only">Öğrencinin uygulama fotoğrafının büyük hali</DialogDescription>
-                      <div className="relative w-full flex items-center justify-center min-h-[30vh]">
-                        <OfflineImage 
-                          src={score.kameraFoto} 
-                          alt="Uygulama Fotoğrafı" 
-                          className="max-w-full max-h-[50vh] object-contain rounded-md" 
-                        />
-                        <Button
-                          variant="destructive"
-                          size="icon"
-                          className="absolute -top-4 -right-4 h-10 w-10 rounded-full shadow-xl z-50 border-2 border-background hover:bg-destructive hover:scale-105 transition-transform cursor-pointer"
-                          onClick={(e) => {
-                            e.preventDefault()
-                            e.stopPropagation()
-                            setDeleteConfirmOpen(true)
-                          }}
-                          title="Fotoğrafı sil"
-                        >
-                          <Trash2 className="h-5 w-5 text-white" />
-                        </Button>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-
-                  <ConfirmDialog
-                    open={deleteConfirmOpen}
-                    onOpenChange={setDeleteConfirmOpen}
-                    title="Fotoğrafı Sil"
-                    description="Bu fotoğrafı silmek istediğinize emin misiniz? Bu işlem geri alınamaz."
-                    confirmText="Sil"
-                    variant="destructive"
-                    onConfirm={() => {
-                      setIsPhotoZoomed(false)
-                      onPhotoDelete(student.id)
-                    }}
-                  />
-                </>
-              )}
-              <Button
-                size="icon"
-                variant="outline"
-                className="h-8 w-8 shrink-0"
-                onClick={() => onCamera(student.id)}
-                title={score?.kameraFoto ? "Fotoğrafı değiştir" : "Fotoğraf çek"}
-              >
-                <Camera className="h-3.5 w-3.5" />
-              </Button>
-              <label className="cursor-pointer shrink-0">
-                <div className="h-8 w-8 inline-flex items-center justify-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground" title={score?.kameraFoto ? "Dosyadan değiştir" : "Dosyadan yükle"}>
-                  <Upload className="h-3.5 w-3.5" />
-                </div>
-                <input
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={(e) => onFileUpload(e, student.id)}
+          {/* Alt satır: skorlama araçları (sadece uygulama seçiliyken) */}
+          {selectedApp && (
+            <div className="flex items-center justify-between gap-2 mt-2 pt-2 border-t border-border/50">
+              {/* Sol: Puan + Devamsız */}
+              <div className="flex items-center gap-1.5">
+                <Input
+                  type="text"
+                  readOnly
+                  placeholder="Puan"
+                  value={score?.puan ?? ''}
+                  onClick={() => onNumpadOpen(student.id)}
+                  disabled={scoresLoading}
+                  className="w-16 h-8 text-sm text-center cursor-pointer bg-white"
                 />
-              </label>
-              <Input
-                placeholder="Kısa not..."
-                value={score?.kisaNot ?? ''}
-                onChange={(e) => onKisaNotChange(student.id, e.target.value)}
-                className="h-8 text-xs w-24 min-w-0"
-              />
+                <Button
+                  size="icon"
+                  variant={score?.devamsiz ? 'destructive' : 'outline'}
+                  className="h-8 w-8 text-xs font-bold"
+                  onClick={() => onDevamsiz(student.id)}
+                  title="Devamsız"
+                >
+                  D
+                </Button>
+              </div>
+
+              {/* Sağ: Kamera + Yükle + Kısa Not */}
+              <div className="flex items-center gap-1.5">
+                {score?.kameraFoto && (
+                  <>
+                    <div
+                      className="w-8 h-8 shrink-0 border border-border overflow-hidden rounded-md cursor-zoom-in"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        setIsPhotoZoomed(true)
+                      }}
+                      title="Büyüt"
+                    >
+                      <OfflineImage src={score.kameraFoto} alt="Uygulama Fotoğrafı" className="w-full h-full object-cover" />
+                    </div>
+
+                    <Dialog open={isPhotoZoomed} onOpenChange={setIsPhotoZoomed}>
+                      <DialogContent className="max-w-[90vw] md:max-w-2xl bg-black/95 border-none p-0 overflow-visible shadow-2xl [&>button]:hidden">
+                        <DialogTitle className="sr-only">Fotoğrafı Büyüt</DialogTitle>
+                        <DialogDescription className="sr-only">Öğrencinin uygulama fotoğrafının büyük hali</DialogDescription>
+                        <div className="relative w-full flex items-center justify-center min-h-[30vh]">
+                          <OfflineImage
+                            src={score.kameraFoto}
+                            alt="Uygulama Fotoğrafı"
+                            className="max-w-full max-h-[50vh] object-contain rounded-md"
+                          />
+                          <Button
+                            variant="destructive"
+                            size="icon"
+                            className="absolute -top-4 -right-4 h-10 w-10 rounded-full shadow-xl z-50 border-2 border-background hover:bg-destructive hover:scale-105 transition-transform cursor-pointer"
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              setDeleteConfirmOpen(true)
+                            }}
+                            title="Fotoğrafı sil"
+                          >
+                            <Trash2 className="h-5 w-5 text-white" />
+                          </Button>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+
+                    <ConfirmDialog
+                      open={deleteConfirmOpen}
+                      onOpenChange={setDeleteConfirmOpen}
+                      title="Fotoğrafı Sil"
+                      description="Bu fotoğrafı silmek istediğinize emin misiniz? Bu işlem geri alınamaz."
+                      confirmText="Sil"
+                      variant="destructive"
+                      onConfirm={() => {
+                        setIsPhotoZoomed(false)
+                        onPhotoDelete(student.id)
+                      }}
+                    />
+                  </>
+                )}
+                <Button
+                  size="icon"
+                  variant="outline"
+                  className="h-8 w-8 shrink-0"
+                  onClick={() => onCamera(student.id)}
+                  title={score?.kameraFoto ? "Fotoğrafı değiştir" : "Fotoğraf çek"}
+                >
+                  <Camera className="h-3.5 w-3.5" />
+                </Button>
+                <label className="cursor-pointer shrink-0">
+                  <div className="h-8 w-8 inline-flex items-center justify-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground" title={score?.kameraFoto ? "Dosyadan değiştir" : "Dosyadan yükle"}>
+                    <Upload className="h-3.5 w-3.5" />
+                  </div>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={(e) => onFileUpload(e, student.id)}
+                  />
+                </label>
+                <Input
+                  placeholder="Kısa not..."
+                  value={score?.kisaNot ?? ''}
+                  onChange={(e) => onKisaNotChange(student.id, e.target.value)}
+                  className="h-8 text-xs w-24 min-w-0"
+                />
+              </div>
             </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }

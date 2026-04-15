@@ -27,7 +27,8 @@ import { toast } from '@/hooks/use-toast'
 import type { SeatObject, Score } from '@/types'
 import { DraggableItem } from './components/DraggableItem'
 import { SmartNumpad } from '@/components/ui/smart-numpad'
-import { Loader2, Save, RotateCcw, Plus, MousePointer2, Undo2, LayoutPanelTop, Trash2, ZoomIn, ZoomOut, Settings } from 'lucide-react'
+import { Loader2, Save, RotateCcw, Plus, Undo2, Redo2, LayoutPanelTop, Trash2, ZoomIn, ZoomOut, Settings, FileSpreadsheet, Printer } from 'lucide-react'
+import { generateSeatingPlanExcel } from '@/services/excelSeatingService'
 
 
 const getObjectSize = (type: string) => {
@@ -127,8 +128,10 @@ export function SeatingPlanPage() {
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [history, setHistory] = useState<SeatObject[][]>([])
+  const [redoHistory, setRedoHistory] = useState<SeatObject[][]>([])
   const [showAssignmentConfirm, setShowAssignmentConfirm] = useState(false)
   const [idsForAssignment, setIdsForAssignment] = useState<string[]>([])
+  const [isShareOpen, setIsShareOpen] = useState(false)
 
   // Selection DB ID Calculation
   const selectedStudentDBIds = new Set<string>();
@@ -163,13 +166,18 @@ export function SeatingPlanPage() {
   const objectsRef = useRef<SeatObject[]>(objects)
   
   const toolbarRef = useRef<HTMLDivElement>(null)
+  const shareRef = useRef<HTMLDivElement>(null)
 
-  // Tıklama ile açık menüleri kapatma (Toolbar)
+  // Tıklama ile açık menüleri kapatma (Toolbar & Share)
   useEffect(() => {
-    if (!isToolbarOpen) return;
+    if (!isToolbarOpen && !isShareOpen) return;
     const handleClickOutside = (e: MouseEvent | TouchEvent) => {
-      if (toolbarRef.current && !toolbarRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (isToolbarOpen && toolbarRef.current && !toolbarRef.current.contains(target)) {
         setIsToolbarOpen(false);
+      }
+      if (isShareOpen && shareRef.current && !shareRef.current.contains(target)) {
+        setIsShareOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside, { capture: true });
@@ -178,7 +186,7 @@ export function SeatingPlanPage() {
       document.removeEventListener('mousedown', handleClickOutside, { capture: true });
       document.removeEventListener('touchstart', handleClickOutside, { capture: true });
     };
-  }, [isToolbarOpen]);
+  }, [isToolbarOpen, isShareOpen]);
 
   // Zoom ölçeğine göre hareketleri düzenleyen dnd modifier
   // useRef kullanıyoruz — closure stale'ini önler, modifier her zaman güncel scale'i okur
@@ -334,15 +342,27 @@ export function SeatingPlanPage() {
 
   const pushHistory = () => {
     setHistory(prev => [...prev, objects].slice(-20)); // En son 20 adımı hafızada tut
+    setRedoHistory([]); // Yeni işlem yapıldığında ileri alma geçmişini temizle
   }
 
   const handleUndo = () => {
     if (history.length === 0) return;
     const previousState = history[history.length - 1];
+    setRedoHistory(prev => [...prev, objects]); // Şu anki hali ileri alma listesine ekle
     setHistory(prev => prev.slice(0, -1));
     setObjects(previousState);
     persistPlan(previousState);
     toast({ title: 'Geri Alındı', description: 'Bir önceki düzene dönüldü.' });
+  }
+
+  const handleRedo = () => {
+    if (redoHistory.length === 0) return;
+    const nextState = redoHistory[redoHistory.length - 1];
+    setHistory(prev => [...prev, objects]); // Şu anki hali geri alma listesine ekle
+    setRedoHistory(prev => prev.slice(0, -1));
+    setObjects(nextState);
+    persistPlan(nextState);
+    toast({ title: 'İleri Alındı', description: 'Geri alınan düzen tekrar uygulandı.' });
   }
 
   const persistPlan = (newObjects: SeatObject[], mode: 'classroom' | 'lab' = layoutMode) => {
@@ -680,9 +700,6 @@ export function SeatingPlanPage() {
     const baseY = 650;
     const size = 72;
     const centerLab = baseX + 3.5 * size;
-    newObjects.push({ id: uuidv4(), type: 'tahta', x: centerLab - 100, y: baseY + 10 * size + 40 });
-    newObjects.push({ id: uuidv4(), type: 'masa', x: centerLab + 150, y: baseY + 10 * size + 40 });
-
     const spots: {x: number, y: number}[] = [];
     for (let row = 9; row >= 1; row--) spots.push({ x: baseX, y: baseY + row * size });
     for (let col = 1; col <= 6; col++) spots.push({ x: baseX + col * size, y: baseY });
@@ -780,6 +797,38 @@ export function SeatingPlanPage() {
   const addEmptyObject = () => {
     pushHistory();
     setObjects((prev) => [...prev, { id: uuidv4(), type: 'empty_object', x: 970, y: 1070 }])
+  }
+
+  const handleShare = (platform: 'whatsapp' | 'telegram') => {
+    if (!course) return;
+    
+    const text = `${course.dersAdi} - ${course.sinifAdi} Oturma Planı\n\n${window.location.href}`;
+    const encodedText = encodeURIComponent(text);
+    
+    let url = '';
+    if (platform === 'whatsapp') {
+      url = `https://wa.me/?text=${encodedText}`;
+    } else {
+      url = `https://t.me/share/url?url=${encodeURIComponent(window.location.href)}&text=${encodeURIComponent(`${course.dersAdi} - ${course.sinifAdi} Oturma Planı`)}`;
+    }
+    
+    window.open(url, '_blank');
+    setIsShareOpen(false);
+  }
+
+  const handleDownloadExcel = async () => {
+    if (!course) return;
+    try {
+      toast({ title: 'Excel Hazırlanıyor', description: 'Oturma planı Excel dosyasına dönüştürülüyor, lütfen bekleyin...' });
+      await generateSeatingPlanExcel(objects, students, course.dersAdi, course.sinifAdi);
+    } catch (error: any) {
+      console.error('Excel export error:', error);
+      toast({ 
+        title: 'Hata', 
+        description: `Oluşturulurken bir hata oluştu: ${error?.message || 'Bilinmeyen hata'}`, 
+        variant: 'destructive' 
+      });
+    }
   }
 
   // DND Handlers
@@ -1133,7 +1182,7 @@ export function SeatingPlanPage() {
   // Sayfa yükleniyorsa
   if (courseLoading || studentsLoading) {
     return (
-      <Layout title="Oturma Planı Yükleniyor" showBack showLogout={false}>
+      <Layout title="Oturma Planı Yükleniyor" showBack backTitle="Liste Görünümü" showLogout={false}>
         <div className="flex h-[60vh] items-center justify-center">
           <Loader2 className="w-10 h-10 animate-spin text-primary" />
         </div>
@@ -1143,11 +1192,36 @@ export function SeatingPlanPage() {
 
   return (
     <Layout 
-      title={`${course?.dersAdi} - Oturma Planı`} 
+      title={
+        <div className="flex flex-col items-center">
+          <span className="truncate">{course?.dersAdi}</span>
+          {activeApplicationId && (
+            <div className="mt-0.5 bg-green-600/85 backdrop-blur-sm text-white px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1 text-[9px] font-bold">
+              <div className="w-1 h-1 bg-white rounded-full animate-pulse shrink-0" />
+              <span className="truncate max-w-[120px]">{activeApplicationAd}</span>
+            </div>
+          )}
+        </div>
+      }
       showBack 
+      backTitle="Liste Görünümü"
       showLogout={false}
+      hideTitleOnDesktop={true}
+      leftExtra={
+        <div className="flex flex-col items-start gap-0.5">
+          <span className="text-[13px] font-bold text-slate-800 uppercase tracking-[0.15em]">
+            {course?.dersAdi}
+          </span>
+          {activeApplicationId && (
+            <div className="bg-green-600/85 backdrop-blur-sm text-white px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1 text-[9px] font-bold w-fit">
+              <div className="w-1 h-1 bg-white rounded-full animate-pulse shrink-0" />
+              <span className="truncate max-w-[120px]">{activeApplicationAd}</span>
+            </div>
+          )}
+        </div>
+      }
       rightAction={
-        <div className="relative pointer-events-auto" ref={toolbarRef}>
+        <div className="relative pointer-events-auto md:hidden" ref={toolbarRef}>
           <Button 
             variant="ghost" 
             size="icon" 
@@ -1158,36 +1232,31 @@ export function SeatingPlanPage() {
             <Settings className={`w-5 h-5 transition-transform duration-500 ${isToolbarOpen ? 'rotate-90' : ''}`} />
           </Button>
 
-          {/* Ayarlar Dropdown Menu */}
+          {/* Ayarlar Dropdown Menu (Mobile Only) */}
           <div className={`absolute top-full mt-2 right-0 z-50 transition-all duration-300 ease-out origin-top-right flex flex-col ${isToolbarOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-4 pointer-events-none'}`}>
             <div className="flex flex-col bg-white border border-slate-200 shadow-2xl rounded-2xl p-1.5 gap-1 items-stretch w-[160px]">
                <Button variant="ghost" onClick={addEmptyDesk} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-slate-100 hover:text-slate-800 transition-colors">
                  <Plus className="w-4 h-4 text-slate-500" />
                  <span className="text-[11px] font-bold tracking-wide uppercase">Sıra Ekle</span>
                </Button>
-
                <Button variant="ghost" onClick={addEmptyObject} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-slate-100 hover:text-slate-800 transition-colors">
                  <Plus className="w-4 h-4 text-slate-500" />
                  <span className="text-[11px] font-bold tracking-wide uppercase">Obje Ekle</span>
                </Button>
-
                <div className="w-full h-px bg-slate-100 my-0.5" />
-
                <Button variant="ghost" onClick={() => handleResetLayout('classroom')} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-orange-50 hover:text-orange-700 transition-colors">
                   <RotateCcw className="w-4 h-4 opacity-70" />
                   <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Sınıfı Sıfırla</span>
                 </Button>
-
                 <Button variant="ghost" onClick={() => handleResetLayout('lab')} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-orange-50 hover:text-orange-700 transition-colors">
                   <RotateCcw className="w-4 h-4 opacity-70" />
                   <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Lab'ı Sıfırla</span>
                 </Button>
-
                 <Button variant="ghost" onClick={clearAll} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-red-50 hover:text-red-700 transition-colors">
                   <Trash2 className="w-4 h-4" />
                   <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Hepsini Sil</span>
                 </Button>
-
+                <div className="w-full h-px bg-slate-100 my-0.5" />
                 <Button variant="default" onClick={handleSave} disabled={saving} className="h-9 px-3 mt-1 flex items-center justify-start gap-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white shadow-md transition-all">
                   {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                   <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Kaydet</span>
@@ -1197,20 +1266,12 @@ export function SeatingPlanPage() {
         </div>
       }
     >
-      <div className="absolute inset-0 top-14 bg-[#e5e7eb] overflow-hidden flex flex-col">
+      <div className="absolute inset-0 top-14 md:top-0 bg-[#e5e7eb] overflow-hidden flex flex-col">
         {/* Canvas Alanı */}
-        <div ref={canvasContainerRef} className="flex-1 relative h-full w-full bg-[#cbd5e1]/40 touch-none">
-          <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-10 px-4 py-2 bg-slate-900/60 text-white text-[11px] rounded-full backdrop-blur-md font-medium flex items-center gap-2 pointer-events-none shadow-lg transition-all">
-            <MousePointer2 className="w-3 h-3" /> Çift parmakla yakınlaştır, objeleri sürükle
-          </div>
+        <div ref={canvasContainerRef} className="flex-1 relative h-full w-full bg-[#e5e7eb] touch-none">
+
 
           {/* Aktif Uygulama Bannerı */}
-          {activeApplicationId && (
-            <div className="absolute bottom-20 left-4 z-10 bg-green-600/85 backdrop-blur-sm text-white px-3 py-1 rounded-full shadow-md flex items-center gap-1.5 text-[10px] font-bold pointer-events-none">
-              <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse shrink-0" />
-              <span className="truncate max-w-[140px]">{activeApplicationAd}</span>
-            </div>
-          )}
 
           <TransformWrapper
             minScale={0.1}
@@ -1307,8 +1368,8 @@ export function SeatingPlanPage() {
                   <AutoFitter onFit={handleHome} loaded={!courseLoading && !studentsLoading && objects.length > 0} layoutVersion={layoutVersion} />
                   
                   {/* Üst Sol Buton Grubu */}
-                  <div className="absolute left-4 top-4 z-40 flex flex-row gap-2">
-                    {/* Düzen Butonları */}
+                  <div className="absolute left-4 md:left-[50px] md:top-16 top-4 z-40 flex flex-row md:flex-col gap-3">
+                    {/* Düzen Butonları (Grup 1) */}
                     <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl overflow-hidden pointer-events-auto transition-all">
                       <button 
                         onClick={() => switchMode('classroom')} 
@@ -1326,7 +1387,7 @@ export function SeatingPlanPage() {
                       </button>
                     </div>
 
-                    {/* Zoom Butonları */}
+                    {/* Zoom Butonları (Grup 2) */}
                     <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl overflow-hidden pointer-events-auto transition-all">
                       <button onClick={() => handleZoomStep(0.85)} className="w-10 h-10 flex items-center justify-center text-slate-800 hover:bg-white transition-all group border-r border-slate-200/50" title="Uzaklaştır">
                         <ZoomOut className="w-5 h-5 group-hover:scale-110 transition-transform" />
@@ -1336,13 +1397,102 @@ export function SeatingPlanPage() {
                       </button>
                     </div>
 
-                    <button disabled={history.length === 0} onClick={handleUndo} className="shrink-0 w-10 h-10 flex items-center justify-center bg-white/80 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl text-slate-800 hover:bg-white transition-all group pointer-events-auto disabled:opacity-50 disabled:cursor-not-allowed" title="Geri Al">
-                      <Undo2 className="w-5 h-5 group-hover:-rotate-12 transition-transform" />
-                    </button>
+                    {/* Geçmiş Butonları (Grup 3) */}
+                    <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl overflow-hidden pointer-events-auto transition-all">
+                      <button disabled={history.length === 0} onClick={handleUndo} className="w-10 h-10 flex items-center justify-center text-slate-800 hover:bg-white transition-all group border-r border-slate-200/50 disabled:opacity-50 disabled:cursor-not-allowed" title="Geri Al">
+                        <Undo2 className="w-5 h-5 group-hover:-rotate-12 transition-transform" />
+                      </button>
+                      <button disabled={redoHistory.length === 0} onClick={handleRedo} className="w-10 h-10 flex items-center justify-center text-slate-800 hover:bg-white transition-all group disabled:opacity-50 disabled:cursor-not-allowed" title="İleri Al">
+                        <Redo2 className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+                      </button>
+                    </div>
+
+                      {/* Paylaş Butonu */}
+                      <div className="relative pointer-events-auto" ref={shareRef}>
+                        <button 
+                          onClick={() => setIsShareOpen(!isShareOpen)} 
+                          className={`w-10 h-10 flex items-center justify-center bg-white/80 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl text-slate-800 transition-all ${isShareOpen ? 'bg-white' : 'hover:bg-white active:scale-95'}`} 
+                          title="Paylaş"
+                        >
+                          <Printer className={`w-5 h-5 transition-transform duration-300 ${isShareOpen ? 'scale-110 text-primary' : ''}`} />
+                        </button>
+
+                        {/* Paylaş Seçenek Kartı */}
+                        <div className={`absolute top-0 left-full ml-3 z-50 transition-all duration-300 ease-out origin-left flex flex-col ${isShareOpen ? 'opacity-100 scale-100 translate-x-0' : 'opacity-0 scale-95 -translate-x-4 pointer-events-none'}`}>
+                          <div className="flex flex-col bg-white border border-slate-200 shadow-2xl rounded-2xl p-1.5 gap-1 items-stretch w-[170px]">
+                            <div className="px-3 py-2 border-b border-slate-50 mb-1">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sınıf Oturma Planı</span>
+                            </div>
+                            <Button variant="ghost" onClick={handleDownloadExcel} className="h-10 px-3 flex items-center justify-start gap-3 rounded-xl hover:bg-green-50 hover:text-green-700 transition-all group">
+                              <div className="w-7 h-7 bg-green-100 rounded-lg flex items-center justify-center group-hover:bg-green-600 group-hover:text-white transition-colors">
+                                <FileSpreadsheet className="w-4 h-4" />
+                              </div>
+                              <span className="text-[11px] font-bold tracking-wide uppercase">Excel İndir</span>
+                            </Button>
+                            <Button variant="ghost" onClick={() => handleShare('whatsapp')} className="h-10 px-3 flex items-center justify-start gap-3 rounded-xl hover:bg-emerald-50 hover:text-emerald-700 transition-all group">
+                              <div className="w-7 h-7 bg-emerald-100 rounded-lg flex items-center justify-center group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                                <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current">
+                                  <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z"/></svg>
+                              </div>
+                              <span className="text-[11px] font-bold tracking-wide uppercase">WhatsApp</span>
+                            </Button>
+                            <Button variant="ghost" onClick={() => handleShare('telegram')} className="h-10 px-3 flex items-center justify-start gap-3 rounded-xl hover:bg-blue-50 hover:text-blue-700 transition-all group">
+                              <div className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                                <svg viewBox="0 0 24 24" className="w-4 h-4 fill-current">
+                                  <path d="M11.944 0C5.346 0 0 5.346 0 11.944c0 6.598 5.346 11.944 11.944 11.944 6.598 0 11.944-5.346 11.944-11.944C23.888 5.346 18.542 0 11.944 0zm5.206 8.19l-1.613 7.616c-.12.54-.44.67-.893.414l-2.454-1.81-1.183 1.138c-.13.13-.242.24-.495.24l.175-2.5 4.545-4.106c.197-.175-.043-.273-.306-.098l-5.618 3.537-2.422-.756c-.526-.165-.537-.526.11-.777l9.457-3.643c.438-.16.82.103.65.745z"/></svg>
+                              </div>
+                              <span className="text-[11px] font-bold tracking-wide uppercase">Telegram</span>
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Ayarlar Butonu (PC için) */}
+                      <div className="hidden md:block relative pointer-events-auto" ref={toolbarRef}>
+                        <button 
+                          onClick={() => setIsToolbarOpen(!isToolbarOpen)} 
+                          className={`w-10 h-10 flex items-center justify-center bg-white/80 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl text-slate-800 transition-all ${isToolbarOpen ? 'bg-white' : 'hover:bg-white active:scale-95'}`} 
+                          title="Ayarlar"
+                        >
+                          <Settings className={`w-5 h-5 transition-transform duration-500 ${isToolbarOpen ? 'rotate-90' : ''}`} />
+                        </button>
+
+                      {/* Ayarlar Dropdown Menu (PC Only) */}
+                      <div className={`absolute top-full mt-2 left-0 z-50 transition-all duration-300 ease-out origin-top-left flex flex-col ${isToolbarOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-4 pointer-events-none'}`}>
+                        <div className="flex flex-col bg-white border border-slate-200 shadow-2xl rounded-2xl p-1.5 gap-1 items-stretch w-[160px]">
+                           <Button variant="ghost" onClick={addEmptyDesk} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-slate-100 hover:text-slate-800 transition-colors">
+                             <Plus className="w-4 h-4 text-slate-500" />
+                             <span className="text-[11px] font-bold tracking-wide uppercase">Sıra Ekle</span>
+                           </Button>
+                           <Button variant="ghost" onClick={addEmptyObject} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-slate-100 hover:text-slate-800 transition-colors">
+                             <Plus className="w-4 h-4 text-slate-500" />
+                             <span className="text-[11px] font-bold tracking-wide uppercase">Obje Ekle</span>
+                           </Button>
+                           <div className="w-full h-px bg-slate-100 my-0.5" />
+                           <Button variant="ghost" onClick={() => handleResetLayout('classroom')} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-orange-50 hover:text-orange-700 transition-colors">
+                              <RotateCcw className="w-4 h-4 opacity-70" />
+                              <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Sınıfı Sıfırla</span>
+                            </Button>
+                            <Button variant="ghost" onClick={() => handleResetLayout('lab')} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-orange-50 hover:text-orange-700 transition-colors">
+                              <RotateCcw className="w-4 h-4 opacity-70" />
+                              <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Lab'ı Sıfırla</span>
+                            </Button>
+                            <Button variant="ghost" onClick={clearAll} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-red-50 hover:text-red-700 transition-colors">
+                              <Trash2 className="w-4 h-4" />
+                              <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Hepsini Sil</span>
+                            </Button>
+                            <div className="w-full h-px bg-slate-100 my-0.5" />
+                            <Button variant="default" onClick={handleSave} disabled={saving} className="h-9 px-3 mt-1 flex items-center justify-start gap-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white shadow-md transition-all">
+                              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                              <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Kaydet</span>
+                            </Button>
+                        </div>
+                      </div>
+                    </div>
                   </div>
 
                   {/* Çoklu Seçim Araç Çubuğu */}
-                  <div className={`absolute top-14 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 backdrop-blur-md border border-slate-700 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-4 transition-all duration-300 origin-top ${isSelectionMode ? 'translate-y-4 opacity-100 scale-100' : '-translate-y-8 opacity-0 scale-95 pointer-events-none'}`}>
+                  <div className={`absolute md:top-6 top-14 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 backdrop-blur-md border border-slate-700 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-4 transition-all duration-300 origin-top ${isSelectionMode ? 'translate-y-4 opacity-100 scale-100' : '-translate-y-8 opacity-0 scale-95 pointer-events-none'}`}>
                     <span className="text-[11px] font-semibold">{selectedIds.length} obje seçildi</span>
                     <div className="w-px h-4 bg-slate-600" />
                     <button onClick={() => { setIsSelectionMode(false); setSelectedIds([]); }} className="text-[10px] font-bold text-amber-400 hover:text-amber-300 transition-colors tracking-widest px-1">
@@ -1359,7 +1509,7 @@ export function SeatingPlanPage() {
                     onDragEnd={handleDragEnd}
                     modifiers={[customZoomAndSnapModifier]}
                   >
-                    <div id="seating-canvas" className="w-[2000px] h-[2000px] bg-slate-50 relative">
+                    <div id="seating-canvas" className="w-[2000px] h-[2000px] bg-[#e5e7eb] relative">
                       <DroppableCanvas onClick={() => {
                         if (isSelectionMode) {
                           setIsSelectionMode(false);
@@ -1369,7 +1519,14 @@ export function SeatingPlanPage() {
                         <div id="guide-x" className="absolute top-0 bottom-0 w-[2px] bg-primary/40 -translate-x-1/2 shadow-sm z-40 pointer-events-none" style={{ display: 'none' }} />
                         <div id="guide-y" className="absolute left-0 right-0 h-[2px] bg-primary/40 -translate-y-1/2 shadow-sm z-40 pointer-events-none" style={{ display: 'none' }} />
 
-                        {objects.map((obj) => {
+                        {(() => {
+                          const selectedStudentDBIds = new Set<string>();
+                          selectedIds.forEach(sid => {
+                            const sObj = objects.find(o => o.id === sid && o.type === 'student');
+                            if (sObj?.studentId) selectedStudentDBIds.add(sObj.studentId);
+                          });
+                          
+                          return objects.map((obj) => {
                           const activeUUID = activeId?.replace('canvas_', '');
                           const isMainDraggingSelected = !!(activeId !== null && isSelectionMode && activeUUID && selectedIds.includes(activeUUID));
 
@@ -1416,10 +1573,10 @@ export function SeatingPlanPage() {
                               }}
                             />
                           )
-                        })}
+                        })})()}
 
                         {/* Bağlantı Çizgileri Layer (Üstte, objelerin üzerinde - pointer-events-none ile) */}
-                        <svg className="absolute inset-0 pointer-events-none w-full h-full" style={{ zIndex: 45 }}>
+                        <svg className="absolute inset-0 pointer-events-none w-full h-full" style={{ zIndex: 15 }}>
                           {objects.filter(o => o.type === 'pc_label' && o.linkedStudentId).map(label => {
                             const studentObj = objects.find(o => o.type === 'student' && o.studentId === label.linkedStudentId);
                             if (!studentObj) return null;
