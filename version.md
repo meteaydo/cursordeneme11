@@ -11,3 +11,4 @@ v1.8 14.04.2026 16:12 - Konsol hataları düzeltildi: COOP politikası, Firebase
 v1.9 15.04.2026 17:15 - Oturma planı paylaşma menüsü (Excel, WhatsApp, Telegram) ve Vercel build hata düzeltmeleri (kullanılmayan değişkenlerin temizlenmesi) eklendi
 v1.10 15.04.2026 18:10 - Alt navigasyon barı merkezlendi, paylaş menüsü mobil taşma sorunları ve z-index katman hataları giderildi, WhatsApp/Telegram paylaşım butonları kaldırıldı.
 v1.11 15.04.2026 19:16 - Alt navigasyon barı tüm sayfalarda merkezlendi, ayarlar menüsü görünürlük (z-index ve overflow) sorunları kökten çözüldü, katman hiyerarşisi maksimize edildi.
+v1.12 15.04.2026 19:55 - Ders kartı tasarımı sadeleştirildi (ders adı ve sınıf adı birleştirildi), tarih ve saat alanları kaldırıldı, kod temizliği yapıldı.
