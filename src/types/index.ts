@@ -14,8 +14,6 @@ export interface Course {
   dersAdi: string
   sinifAdi: string
   sinifMevcudu: number
-  dersGunu: string
-  dersSaati: string
   createdAt: Date
   seatingPlan?: string; // JSON.stringify(SeatObject[]) şeklinde tutulacak
   hasPendingWrites?: boolean
@@ -70,8 +68,6 @@ export interface CourseFormData {
   dersAdi: string
   sinifAdi: string
   sinifMevcudu: number
-  dersGunu: string
-  dersSaati: string
 }
 
 export interface StudentFormData {

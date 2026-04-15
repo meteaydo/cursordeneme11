@@ -165,7 +165,8 @@ export function SeatingPlanPage() {
   // Always-current objects ref — stale closure'u önler
   const objectsRef = useRef<SeatObject[]>(objects)
   
-  const toolbarRef = useRef<HTMLDivElement>(null)
+  const toolbarMobileRef = useRef<HTMLDivElement>(null)
+  const toolbarPcRef = useRef<HTMLDivElement>(null)
   const shareRef = useRef<HTMLDivElement>(null)
 
   // Tıklama ile açık menüleri kapatma (Toolbar & Share)
@@ -173,8 +174,12 @@ export function SeatingPlanPage() {
     if (!isToolbarOpen && !isShareOpen) return;
     const handleClickOutside = (e: MouseEvent | TouchEvent) => {
       const target = e.target as Node;
-      if (isToolbarOpen && toolbarRef.current && !toolbarRef.current.contains(target)) {
-        setIsToolbarOpen(false);
+      if (isToolbarOpen) {
+        const isInsideMobile = toolbarMobileRef.current?.contains(target);
+        const isInsidePc = toolbarPcRef.current?.contains(target);
+        if (!isInsideMobile && !isInsidePc) {
+          setIsToolbarOpen(false);
+        }
       }
       if (isShareOpen && shareRef.current && !shareRef.current.contains(target)) {
         setIsShareOpen(false);
@@ -1205,7 +1210,7 @@ export function SeatingPlanPage() {
         </div>
       }
       rightAction={
-        <div className="relative pointer-events-auto md:hidden" ref={toolbarRef}>
+        <div className="relative pointer-events-auto md:hidden z-[220] overflow-visible" ref={toolbarMobileRef}>
           <Button 
             variant="ghost" 
             size="icon" 
@@ -1217,31 +1222,31 @@ export function SeatingPlanPage() {
           </Button>
 
           {/* Ayarlar Dropdown Menu (Mobile Only) */}
-          <div className={`absolute top-full mt-2 right-0 z-[70] transition-all duration-300 ease-out origin-top-right flex flex-col ${isToolbarOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-4 pointer-events-none'}`}>
-            <div className="flex flex-col bg-white border border-slate-200 shadow-2xl rounded-2xl p-1.5 gap-1 items-stretch w-[160px]">
-               <Button variant="ghost" onClick={addEmptyDesk} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-slate-100 hover:text-slate-800 transition-colors">
+          <div className={`absolute top-full mt-2 right-0 z-[210] transition-all duration-300 ease-out origin-top-right flex flex-col ${isToolbarOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-4 pointer-events-none'}`}>
+            <div className="flex flex-col bg-white border border-slate-200 shadow-2xl rounded-[24px] p-2 gap-1 items-stretch w-[160px]">
+               <Button variant="ghost" onClick={addEmptyDesk} className="h-10 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-slate-100 hover:text-slate-800 transition-colors">
                  <Plus className="w-4 h-4 text-slate-500" />
                  <span className="text-[11px] font-bold tracking-wide uppercase">Sıra Ekle</span>
                </Button>
-               <Button variant="ghost" onClick={addEmptyObject} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-slate-100 hover:text-slate-800 transition-colors">
+               <Button variant="ghost" onClick={addEmptyObject} className="h-10 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-slate-100 hover:text-slate-800 transition-colors">
                  <Plus className="w-4 h-4 text-slate-500" />
                  <span className="text-[11px] font-bold tracking-wide uppercase">Obje Ekle</span>
                </Button>
-               <div className="w-full h-px bg-slate-100 my-0.5" />
-               <Button variant="ghost" onClick={() => handleResetLayout('classroom')} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-orange-50 hover:text-orange-700 transition-colors">
+               <div className="w-full h-px bg-slate-100 my-1" />
+               <Button variant="ghost" onClick={() => handleResetLayout('classroom')} className="h-10 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-orange-50 hover:text-orange-700 transition-colors">
                   <RotateCcw className="w-4 h-4 opacity-70" />
                   <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Sınıfı Sıfırla</span>
                 </Button>
-                <Button variant="ghost" onClick={() => handleResetLayout('lab')} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-orange-50 hover:text-orange-700 transition-colors">
+                <Button variant="ghost" onClick={() => handleResetLayout('lab')} className="h-10 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-orange-50 hover:text-orange-700 transition-colors">
                   <RotateCcw className="w-4 h-4 opacity-70" />
                   <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Lab'ı Sıfırla</span>
                 </Button>
-                <Button variant="ghost" onClick={clearAll} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-red-50 hover:text-red-700 transition-colors">
+                <Button variant="ghost" onClick={clearAll} className="h-10 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-red-50 hover:text-red-700 transition-colors">
                   <Trash2 className="w-4 h-4" />
                   <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Hepsini Sil</span>
                 </Button>
-                <div className="w-full h-px bg-slate-100 my-0.5" />
-                <Button variant="default" onClick={handleSave} disabled={saving} className="h-9 px-3 mt-1 flex items-center justify-start gap-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white shadow-md transition-all">
+                <div className="w-full h-px bg-slate-100 my-1" />
+                <Button variant="default" onClick={handleSave} disabled={saving} className="h-11 px-3 mt-1 flex items-center justify-start gap-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white shadow-md transition-all">
                   {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                   <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Kaydet</span>
                 </Button>
@@ -1250,7 +1255,7 @@ export function SeatingPlanPage() {
         </div>
       }
     >
-      <div className="absolute inset-0 top-14 md:top-0 bg-[#e5e7eb] overflow-hidden flex flex-col">
+      <div className="absolute inset-0 top-14 md:top-0 bg-[#e5e7eb] overflow-hidden flex flex-col z-0">
         {/* Canvas Alanı */}
         <div ref={canvasContainerRef} className="flex-1 relative h-full w-full bg-[#e5e7eb] touch-none">
 
@@ -1402,8 +1407,8 @@ export function SeatingPlanPage() {
                         </button>
 
                         {/* Paylaş Seçenek Kartı */}
-                        <div className={`absolute top-full mt-2 left-0 md:top-0 md:left-full md:ml-3 z-[70] transition-all duration-300 ease-out origin-top md:origin-left flex flex-col ${isShareOpen ? 'opacity-100 scale-100 translate-y-0 md:translate-x-0' : 'opacity-0 scale-95 -translate-y-4 md:-translate-x-4 pointer-events-none'}`}>
-                          <div className="flex flex-col bg-white border border-slate-200 shadow-2xl rounded-2xl p-1.5 gap-1 items-stretch w-[170px]">
+                        <div className={`absolute top-full mt-2 right-0 md:top-0 md:left-full md:ml-3 z-[210] transition-all duration-300 ease-out origin-top-right md:origin-left flex flex-col ${isShareOpen ? 'opacity-100 scale-100 translate-y-0 md:translate-x-0' : 'opacity-0 scale-95 -translate-y-4 md:-translate-x-4 pointer-events-none'}`}>
+                          <div className="flex flex-col bg-white border border-slate-200 shadow-2xl rounded-[24px] p-2 gap-1 items-stretch w-[170px]">
                             <div className="px-3 py-2 border-b border-slate-50 mb-1">
                               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sınıf Oturma Planı</span>
                             </div>
@@ -1419,7 +1424,7 @@ export function SeatingPlanPage() {
                       </div>
 
                       {/* Ayarlar Butonu (PC için) */}
-                      <div className="hidden md:block relative pointer-events-auto" ref={toolbarRef}>
+                      <div className="hidden md:block relative pointer-events-auto" ref={toolbarPcRef}>
                         <button 
                           onClick={() => setIsToolbarOpen(!isToolbarOpen)} 
                           className={`w-10 h-10 flex items-center justify-center bg-white/80 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl text-slate-800 transition-all ${isToolbarOpen ? 'bg-white' : 'hover:bg-white active:scale-95'}`} 
@@ -1429,8 +1434,8 @@ export function SeatingPlanPage() {
                         </button>
 
                       {/* Ayarlar Dropdown Menu (PC Only) */}
-                      <div className={`absolute top-full mt-2 left-0 z-[70] transition-all duration-300 ease-out origin-top-left flex flex-col ${isToolbarOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-4 pointer-events-none'}`}>
-                        <div className="flex flex-col bg-white border border-slate-200 shadow-2xl rounded-2xl p-1.5 gap-1 items-stretch w-[160px]">
+                      <div className={`absolute top-full mt-2 left-0 z-[210] transition-all duration-300 ease-out origin-top-left flex flex-col ${isToolbarOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-4 pointer-events-none'}`}>
+                        <div className="flex flex-col bg-white border border-slate-200 shadow-2xl rounded-[24px] p-2 gap-1 items-stretch w-[160px]">
                            <Button variant="ghost" onClick={addEmptyDesk} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-slate-100 hover:text-slate-800 transition-colors">
                              <Plus className="w-4 h-4 text-slate-500" />
                              <span className="text-[11px] font-bold tracking-wide uppercase">Sıra Ekle</span>

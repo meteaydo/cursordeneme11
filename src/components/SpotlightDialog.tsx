@@ -41,7 +41,6 @@ export function SpotlightDialog({ open, onOpenChange }: SpotlightDialogProps) {
       keys: [
         { name: 'dersAdi', weight: 0.6 },
         { name: 'sinifAdi', weight: 0.3 },
-        { name: 'dersGunu', weight: 0.1 },
       ],
       threshold: 0.4,
       includeScore: true,
@@ -228,7 +227,7 @@ export function SpotlightDialog({ open, onOpenChange }: SpotlightDialogProps) {
                       </div>
                       <div className="min-w-0">
                         <p className="text-sm font-medium truncate">{r.item.dersAdi}</p>
-                        <p className="text-xs text-muted-foreground truncate">{r.item.sinifAdi} · {r.item.dersGunu}</p>
+                        <p className="text-xs text-muted-foreground truncate">{r.item.sinifAdi}</p>
                       </div>
                     </button>
                   )

@@ -4,7 +4,7 @@ import type { SeatObject, Score } from '@/types'
 import { OfflineImage } from '@/components/ui/OfflineImage'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowUpRight, Camera, Upload, AlertCircle, X } from 'lucide-react'
+import { ArrowUpRight, Camera, Upload, X } from 'lucide-react'
 
 interface DraggableItemProps {
   item: SeatObject
@@ -293,15 +293,15 @@ function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, has
 
         {/* Puan rozeti */}
         {hasActiveApp && puan !== null && puan !== undefined && (
-          <div className="absolute -top-2 -left-2 w-5 h-5 bg-primary text-white rounded-full flex items-center justify-center z-20 shadow-md">
-            <span className="text-[8px] font-black">{puan}</span>
+          <div className="absolute -top-2 -left-2 w-6 h-6 bg-primary text-white rounded-full flex items-center justify-center z-20 shadow-md opacity-50">
+            <span className="text-[10px] font-black">{puan}</span>
           </div>
         )}
 
         {/* Devamsız rozeti */}
         {isDevamsiz && (
-          <div className="absolute -top-2 -right-2 w-5 h-5 bg-red-500 text-white rounded-full flex items-center justify-center z-20 shadow-md">
-            <AlertCircle className="w-3 h-3" />
+          <div className="absolute -top-2 -left-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center z-20 shadow-md opacity-50">
+            <span className="text-[10px] font-black">D</span>
           </div>
         )}
 

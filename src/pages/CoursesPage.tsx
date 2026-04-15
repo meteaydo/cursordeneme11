@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Search, BookOpen, Clock, Users, Trash2, Loader2, FileText } from 'lucide-react'
+import { Plus, Search, BookOpen, Users, Trash2, Loader2, FileText } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useCourses } from '@/hooks/useCourses'
@@ -15,7 +14,6 @@ import { useCourseStats } from '@/hooks/useCourseStats'
 import type { CourseFormData } from '@/types'
 import { formatTitleCase, formatClassName } from '@/lib/utils'
 
-const GUNLER = ['Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi']
 
 const CLASS_COLORS = [
   'border-l-red-500',
@@ -48,8 +46,6 @@ const EMPTY_FORM: CourseFormData = {
   dersAdi: '',
   sinifAdi: '',
   sinifMevcudu: 0,
-  dersGunu: '',
-  dersSaati: '',
 }
 
 export default function CoursesPage() {
@@ -81,10 +77,6 @@ export default function CoursesPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
-    if (!form.dersGunu) {
-      setError('Ders günü seçiniz.')
-      return
-    }
     setSaving(true)
     try {
       addCourse(form) // Optimistic, no await
@@ -159,8 +151,7 @@ export default function CoursesPage() {
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-base truncate">{course.dersAdi}</h3>
-                      <p className="text-sm text-muted-foreground mt-0.5">{course.sinifAdi}</p>
+                      <h3 className="font-semibold text-base truncate">{course.dersAdi} - {course.sinifAdi}</h3>
                       <div className="flex flex-wrap gap-2 mt-2">
                         <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
                           <Users className="mr-1 h-3 w-3" />
@@ -169,10 +160,6 @@ export default function CoursesPage() {
                         <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
                           <FileText className="mr-1 h-3 w-3" />
                           {stats[course.id]?.appCount || 0} uygulama
-                        </Badge>
-                        <Badge variant="outline" className="text-[10px] h-5 px-1.5">
-                          <Clock className="mr-1 h-3 w-3" />
-                          {course.dersGunu} {course.dersSaati}
                         </Badge>
                       </div>
                     </div>
@@ -227,30 +214,6 @@ export default function CoursesPage() {
                 onChange={(e) => setForm({ ...form, sinifAdi: formatClassName(e.target.value) })}
                 required
               />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <Label>Ders Günü *</Label>
-                <Select value={form.dersGunu} onValueChange={(v) => setForm({ ...form, dersGunu: v })}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Gün seç" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {GUNLER.map((g) => (
-                      <SelectItem key={g} value={g}>{g}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="dersSaati">Ders Saati</Label>
-                <Input
-                  id="dersSaati"
-                  type="time"
-                  value={form.dersSaati}
-                  onChange={(e) => setForm({ ...form, dersSaati: e.target.value })}
-                />
-              </div>
             </div>
 
             {error && (
