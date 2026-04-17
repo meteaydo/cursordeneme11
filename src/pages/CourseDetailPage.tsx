@@ -24,6 +24,7 @@ import { format } from 'date-fns'
 import { tr } from 'date-fns/locale'
 import { formatTitleCase, formatClassName } from '@/lib/utils'
 import { parseStudentExcel, type ParsedStudent } from '@/lib/excelStudentParser'
+import { parseClassTemplate } from '@/services/classTemplateService'
 
 const EMPTY_STUDENT: StudentFormData = {
   no: '', adSoyad: '', pcNo: '', eskiPcNolari: [], ozelDurumNotlari: '', foto: '',
@@ -35,7 +36,7 @@ export default function CourseDetailPage() {
   const location = useLocation()
   const id = courseId!
 
-  const state = location.state as { courseName?: string; className?: string } | null
+  const state = location.state as { courseName?: string; className?: string; fromTemplate?: boolean } | null
   const pageTitle = state?.courseName ? `${state.courseName} - ${state.className}` : "Ders Uygulamaları"
 
   const { students, loading: studentsLoading, addStudent, addStudentsBulk, updateStudent } = useStudents(id)
@@ -101,6 +102,9 @@ export default function CourseDetailPage() {
     prevTop: 0,
     smoothAlign: false
   })
+
+  // Template loader denemesi state'i
+  const templateAttempted = useRef(false)
 
   // DOM güncellendikten hemen sonra (ekrana çizilmeden önce) kaydırma zıplamasını düzelt
   useLayoutEffect(() => {
@@ -170,6 +174,33 @@ export default function CourseDetailPage() {
       setSelectedApp(applications[0])
     }
   }, [applications])
+
+  // Template kontrolü
+  useEffect(() => {
+    if (state?.fromTemplate && state?.className && !studentsLoading && students.length === 0 && !templateAttempted.current) {
+      templateAttempted.current = true;
+      loadTemplate(state.className);
+    }
+  }, [state?.fromTemplate, state?.className, studentsLoading, students.length]);
+
+  const loadTemplate = async (className: string) => {
+    setExcelParsing(true)
+    setExcelError(null)
+    try {
+      const result = await parseClassTemplate(className)
+      setParsedStudents(result)
+      const urls: Record<number, string> = {}
+      result.forEach((s, i) => {
+        if (s.foto) urls[i] = URL.createObjectURL(s.foto)
+      })
+      setPreviewUrls(urls)
+      setPreviewOpen(true)
+    } catch (err) {
+      toast({ title: 'Liste İndirilemedi', description: err instanceof Error ? err.message : 'Otomatik sınıf listesi indirilemedi. Gerekirse manuel olarak Excel\'den yükleyebilirsiniz.', variant: 'destructive' })
+    } finally {
+      setExcelParsing(false)
+    }
+  }
 
   const handleAppSelect = (app: Application) => {
     const stickyHeader = stickyHeaderRef.current

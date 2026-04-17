@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Search, BookOpen, Users, Trash2, Loader2, FileText } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
@@ -7,12 +7,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Badge } from '@/components/ui/badge'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { useCourses } from '@/hooks/useCourses'
 import { useCourseStats } from '@/hooks/useCourseStats'
 import type { CourseFormData } from '@/types'
 import { formatTitleCase, formatClassName } from '@/lib/utils'
+import { fetchClassList } from '@/services/classTemplateService'
 
 
 const CLASS_COLORS = [
@@ -60,6 +62,13 @@ export default function CoursesPage() {
   
   const [deleteCourseId, setDeleteCourseId] = useState<string | null>(null)
 
+  const [classList, setClassList] = useState<string[]>([])
+  const [isManualClass, setIsManualClass] = useState(false)
+
+  useEffect(() => {
+    fetchClassList().then(setClassList)
+  }, [])
+
   const loading = coursesLoading || statsLoading
 
   const filteredAndSorted = courses
@@ -79,8 +88,15 @@ export default function CoursesPage() {
     setError('')
     setSaving(true)
     try {
-      addCourse(form) // Optimistic, no await
+      const courseId = await addCourse(form) 
       setOpen(false)
+      
+      // Eğen hazır bir sınıf seçildiyse doğrudan ders detayına git (öğrenciler otomatik yüklenecek)
+      if (courseId && !isManualClass && classList.includes(form.sinifAdi)) {
+        navigate(`/courses/${courseId}`, { 
+          state: { courseName: form.dersAdi, className: form.sinifAdi, fromTemplate: true } 
+        })
+      }
       setForm(EMPTY_FORM)
     } catch {
       setError('Ders eklenemedi. Lütfen tekrar deneyin.')
@@ -207,13 +223,44 @@ export default function CoursesPage() {
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="sinifAdi">Sınıf / Şube *</Label>
-              <Input
-                id="sinifAdi"
-                placeholder="9A"
-                value={form.sinifAdi}
-                onChange={(e) => setForm({ ...form, sinifAdi: formatClassName(e.target.value) })}
-                required
-              />
+              {isManualClass || classList.length === 0 ? (
+                <div className="flex gap-2">
+                  <Input
+                    id="sinifAdi"
+                    placeholder="Örn: 9A"
+                    value={form.sinifAdi}
+                    onChange={(e) => setForm({ ...form, sinifAdi: formatClassName(e.target.value) })}
+                    required
+                    className="flex-1"
+                  />
+                  {classList.length > 0 && (
+                    <Button type="button" variant="outline" onClick={() => { setIsManualClass(false); setForm({ ...form, sinifAdi: '' }) }}>
+                      Liste
+                    </Button>
+                  )}
+                </div>
+              ) : (
+                <Select value={form.sinifAdi || undefined} onValueChange={(val) => {
+                  if (val === 'manual') {
+                    setIsManualClass(true)
+                    setForm({ ...form, sinifAdi: '' })
+                  } else {
+                    setForm({ ...form, sinifAdi: val })
+                  }
+                }}>
+                  <SelectTrigger id="sinifAdi">
+                    <SelectValue placeholder="Sınıf Seçiniz..." />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {classList.map(cls => (
+                      <SelectItem key={cls} value={cls}>{cls}</SelectItem>
+                    ))}
+                    <SelectItem value="manual" className="font-semibold text-primary border-t rounded-none mt-1">
+                      + Diğer sınıf (Manuel olarak yaz)
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
 
             {error && (
