@@ -42,7 +42,7 @@ export default function CourseDetailPage() {
   const state = location.state as { courseName?: string; className?: string; fromTemplate?: boolean } | null
   const pageTitle = state?.courseName ? `${state.courseName} - ${state.className}` : "Ders Uygulamaları"
 
-  const { students, loading: studentsLoading, addStudent, addStudentsBulk, updateStudent } = useStudents(id)
+  const { students, loading: studentsLoading, addStudent, addStudentsBulk } = useStudents(id)
   const { applications, loading: appsLoading, addApplication, updateApplication, deleteApplication, getScores, setScore } = useApplications(id)
 
   // Selected application for scoring
