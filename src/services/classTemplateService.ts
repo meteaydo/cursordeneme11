@@ -1,7 +1,7 @@
 import { parseStudentExcel, type ParsedStudent } from '@/lib/excelStudentParser'
 
 // Varsayılan public URL (env'den alınır)
-const R2_PUBLIC_URL = import.meta.env.VITE_R2_PUBLIC_URL || 'https://pub-r2.yourdomain.com'
+const R2_PUBLIC_URL = import.meta.env.VITE_R2_WORKER_URL || import.meta.env.VITE_R2_PUBLIC_URL || 'https://pub-r2.yourdomain.com'
 
 let cachedClassList: string[] | null = null
 

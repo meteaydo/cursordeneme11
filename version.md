@@ -13,3 +13,7 @@ v1.10 15.04.2026 18:10 - Alt navigasyon barı merkezlendi, paylaş menüsü mobi
 v1.11 15.04.2026 19:16 - Alt navigasyon barı tüm sayfalarda merkezlendi, ayarlar menüsü görünürlük (z-index ve overflow) sorunları kökten çözüldü, katman hiyerarşisi maksimize edildi.
 v1.12 15.04.2026 19:55 - Ders kartı tasarımı sadeleştirildi (ders adı ve sınıf adı birleştirildi), tarih ve saat alanları kaldırıldı, kod temizliği yapıldı.
 v1.13 17.04.2026 22:16 - Cloudflare R2 üzerinden otomatik sınıf şablonu (fotoğraflı excel) yükleme özelliği ve seçilebilir sınıf listesi menüsü eklendi.
+
+v1.14 18.04.2026 11:52
+
+

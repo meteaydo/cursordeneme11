@@ -61,16 +61,16 @@ export function useStudents(courseId: string) {
     return docRef.id
   }
 
-  const addStudentsBulk = async (studentList: StudentFormData[]): Promise<string[]> => {
+  const addStudentsBulk = async (studentList: (StudentFormData & { id?: string })[]): Promise<string[]> => {
     const batch = writeBatch(db)
     const ids: string[] = []
     studentList.forEach((s) => {
-      const ref = doc(collection(db, 'courses', courseId, 'students'))
+      const ref = s.id ? doc(db, 'courses', courseId, 'students', s.id) : doc(collection(db, 'courses', courseId, 'students'))
       ids.push(ref.id)
-      batch.set(ref, { ...s, createdAt: serverTimestamp() })
+      const { id: _id, ...data } = s
+      batch.set(ref, { ...data, createdAt: serverTimestamp() })
     })
-    // Fire and forget batch
-    batch.commit().catch(console.error)
+    await batch.commit().catch(console.error)
     return ids
   }
 

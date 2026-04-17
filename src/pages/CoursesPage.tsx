@@ -63,11 +63,29 @@ export default function CoursesPage() {
   const [deleteCourseId, setDeleteCourseId] = useState<string | null>(null)
 
   const [classList, setClassList] = useState<string[]>([])
+  const [grades, setGrades] = useState<string[]>([])
+  const [sections, setSections] = useState<string[]>([])
   const [isManualClass, setIsManualClass] = useState(false)
 
+  const [selGrade, setSelGrade] = useState('')
+  const [selSection, setSelSection] = useState('')
+
   useEffect(() => {
-    fetchClassList().then(setClassList)
+    fetchClassList().then(list => {
+      setClassList(list)
+      const g = Array.from(new Set(list.map(c => c.match(/^\d+/)?.[0]).filter(Boolean))) as string[]
+      const s = Array.from(new Set(list.map(c => c.match(/[A-Z]+$/)?.[0]).filter(Boolean))) as string[]
+      setGrades(g.sort((a, b) => Number(a) - Number(b)))
+      setSections(s.sort())
+    })
   }, [])
+
+  // Grade veya Section değişince form'u güncelle
+  useEffect(() => {
+    if (!isManualClass && selGrade && selSection) {
+      setForm(prev => ({ ...prev, sinifAdi: selGrade + selSection }))
+    }
+  }, [selGrade, selSection, isManualClass])
 
   const loading = coursesLoading || statsLoading
 
@@ -204,9 +222,8 @@ export default function CoursesPage() {
         <Plus size={28} strokeWidth={2.5} className="drop-shadow-md" />
       </button>
 
-      {/* Add Course Dialog */}
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent>
+        <DialogContent className="sm:top-10 sm:translate-y-0">
           <DialogHeader>
             <DialogTitle>Yeni Ders Ekle</DialogTitle>
           </DialogHeader>
@@ -222,7 +239,29 @@ export default function CoursesPage() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="sinifAdi">Sınıf / Şube *</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="sinifAdi">Sınıf / Şube *</Label>
+                {classList.length > 0 && (
+                  <Button 
+                    type="button" 
+                    variant="ghost" 
+                    size="sm" 
+                    className="h-7 px-2 text-[11px] text-muted-foreground hover:text-primary"
+                    onClick={() => {
+                      const nextManual = !isManualClass
+                      setIsManualClass(nextManual)
+                      if (nextManual) {
+                        setForm(prev => ({ ...prev, sinifAdi: '' }))
+                      } else {
+                        setForm(prev => ({ ...prev, sinifAdi: selGrade + selSection }))
+                      }
+                    }}
+                  >
+                    {isManualClass ? 'Listeden Seç' : 'Manuel Yaz'}
+                  </Button>
+                )}
+              </div>
+              
               {isManualClass || classList.length === 0 ? (
                 <div className="flex gap-2">
                   <Input
@@ -233,33 +272,31 @@ export default function CoursesPage() {
                     required
                     className="flex-1"
                   />
-                  {classList.length > 0 && (
-                    <Button type="button" variant="outline" onClick={() => { setIsManualClass(false); setForm({ ...form, sinifAdi: '' }) }}>
-                      Liste
-                    </Button>
-                  )}
                 </div>
               ) : (
-                <Select value={form.sinifAdi || undefined} onValueChange={(val) => {
-                  if (val === 'manual') {
-                    setIsManualClass(true)
-                    setForm({ ...form, sinifAdi: '' })
-                  } else {
-                    setForm({ ...form, sinifAdi: val })
-                  }
-                }}>
-                  <SelectTrigger id="sinifAdi">
-                    <SelectValue placeholder="Sınıf Seçiniz..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {classList.map(cls => (
-                      <SelectItem key={cls} value={cls}>{cls}</SelectItem>
-                    ))}
-                    <SelectItem value="manual" className="font-semibold text-primary border-t rounded-none mt-1">
-                      + Diğer sınıf (Manuel olarak yaz)
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
+                <div className="grid grid-cols-2 gap-2">
+                  <Select value={selGrade} onValueChange={setSelGrade}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sınıf" />
+                    </SelectTrigger>
+                    <SelectContent side="bottom" className="z-[100]">
+                      {grades.map(g => (
+                        <SelectItem key={g} value={g}>{g}. Sınıf</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={selSection} onValueChange={setSelSection}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Şube" />
+                    </SelectTrigger>
+                    <SelectContent side="bottom" className="z-[100]">
+                      {sections.map(s => (
+                        <SelectItem key={s} value={s}>{s} Şubesi</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               )}
             </div>
 

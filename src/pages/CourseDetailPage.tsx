@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useLayoutEffect } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { collection, doc } from 'firebase/firestore'
+import { db } from '@/lib/firebase'
 import { DialogDescription } from '@/components/ui/dialog'
 import {
   Plus, Camera, Download, Loader2, UserPlus, FileSpreadsheet, Upload, AlertTriangle, Check, Trash2, Star, StarOff, FileText
@@ -10,6 +12,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { SmartNumpad } from '@/components/ui/smart-numpad'
@@ -24,7 +27,7 @@ import { format } from 'date-fns'
 import { tr } from 'date-fns/locale'
 import { formatTitleCase, formatClassName } from '@/lib/utils'
 import { parseStudentExcel, type ParsedStudent } from '@/lib/excelStudentParser'
-import { parseClassTemplate } from '@/services/classTemplateService'
+import { parseClassTemplate, fetchClassList } from '@/services/classTemplateService'
 
 const EMPTY_STUDENT: StudentFormData = {
   no: '', adSoyad: '', pcNo: '', eskiPcNolari: [], ozelDurumNotlari: '', foto: '',
@@ -105,6 +108,21 @@ export default function CourseDetailPage() {
 
   // Template loader denemesi state'i
   const templateAttempted = useRef(false)
+
+  // Hazır liste yükleme state'leri
+  const [grades, setGrades] = useState<string[]>([])
+  const [sections, setSections] = useState<string[]>([])
+  const [selGrade, setSelGrade] = useState('')
+  const [selSection, setSelSection] = useState('')
+
+  useEffect(() => {
+    fetchClassList().then(list => {
+      const g = Array.from(new Set(list.map(c => c.match(/^\d+/)?.[0]).filter(Boolean))) as string[]
+      const s = Array.from(new Set(list.map(c => c.match(/[A-Z]+$/)?.[0]).filter(Boolean))) as string[]
+      setGrades(g.sort((a, b) => Number(a) - Number(b)))
+      setSections(s.sort())
+    })
+  }, [])
 
   // DOM güncellendikten hemen sonra (ekrana çizilmeden önce) kaydırma zıplamasını düzelt
   useLayoutEffect(() => {
@@ -319,49 +337,56 @@ export default function CourseDetailPage() {
   const handlePreviewConfirm = async () => {
     setExcelSaving(true)
     try {
-      const mapped: StudentFormData[] = []
-      const photoUploads: { index: number; blob: Blob }[] = []
+      const mapped: (StudentFormData & { id: string })[] = []
+      
+      // Öğrencilerin foto yükleme işlemlerini paralel olarak başlat
+      const tasks = parsedStudents.map(async (s, i) => {
+        const docRef = doc(collection(db, 'courses', id, 'students'))
+        const docId = docRef.id
 
-      parsedStudents.forEach((s, i) => {
-        // Önceden var olan öğrenci sayısına göre PC numarası atama ("PC01", "PC02" vb.)
         const pcIndex = students.length + i + 1
         const pcNoStr = `PC${String(pcIndex).padStart(2, '0')}`
 
+        let finalFotoUrl = ''
+
+        if (s.foto) {
+          const key = `students/${docId}/foto.jpg`
+          try {
+            finalFotoUrl = await queueImageUpload(s.foto, key, {
+              collection: `courses/${id}/students`,
+              docId,
+              field: 'foto'
+            })
+          } catch {
+            // sessizce geç
+          }
+        }
+
         mapped.push({
+          id: docId,
           no: s.no,
           adSoyad: formatTitleCase(s.adSoyad),
           pcNo: pcNoStr,
           eskiPcNolari: [],
           ozelDurumNotlari: '',
-          foto: '',
+          foto: finalFotoUrl,
         })
-        if (s.foto) photoUploads.push({ index: i, blob: s.foto })
       })
 
-      const docIds = await addStudentsBulk(mapped)
+      // Tüm öğrencilerin fotoğraflarının IndexedDB'ye eklenmesini bekle
+      await Promise.all(tasks)
 
-      if (photoUploads.length > 0 && docIds.length > 0) {
-        for (const pu of photoUploads) {
-          const docId = docIds[pu.index]
-          if (!docId) continue
-          const key = `students/${docId}/foto.jpg`
-          try {
-            const localUrl = await queueImageUpload(pu.blob, key, {
-              collection: `courses/${id}/students`,
-              docId,
-              field: 'foto'
-            })
-            await updateStudent(docId, { foto: localUrl })
-          } catch {
-            // foto yükleme hatası sessizce geçilir
-          }
-        }
-      }
+      // Tüm öğrencileri tek seferde (1 batch içinde) kaydet
+      await addStudentsBulk(mapped)
 
       Object.values(previewUrls).forEach(URL.revokeObjectURL)
       setPreviewUrls({})
       setParsedStudents([])
       setPreviewOpen(false)
+
+      // Firebase'in yeni oluşturulan koleksiyonlarda snapshot yakalama problemini (gecikmeyi) aşmak için 
+      // sayfayı otomatik ve veriler yüklenmiş halde temiz bir şekilde yeniden yüklüyoruz.
+      window.location.replace(window.location.pathname)
     } catch {
       toast({ title: 'Hata', description: 'Öğrenciler kaydedilirken hata oluştu.', variant: 'destructive' })
     } finally {
@@ -633,6 +658,19 @@ export default function CourseDetailPage() {
 
   return (
     <Layout title={pageTitle} showBack backTo="/courses" backTitle="Dersler" showLogout={false}>
+      {excelParsing && (
+        <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center p-4">
+          <div className="bg-card text-card-foreground p-6 rounded-2xl shadow-xl flex flex-col items-center max-w-sm w-full text-center space-y-4 border border-border">
+            <Loader2 className="h-10 w-10 text-primary animate-spin" />
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold tracking-tight">Sınıf Listesi İndiriliyor</h3>
+              <p className="text-sm text-muted-foreground">
+                Lütfen bekleyin, şablon otomatik olarak sunucudan alınıyor ve ekranınıza taşınıyor...
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="space-y-4">
         {/* Applications Section */}
         <div ref={stickyHeaderRef} className="sticky top-14 z-30 -mx-4 px-4 py-2 -mt-4 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b mb-2 shadow-sm">
@@ -838,6 +876,7 @@ export default function CourseDetailPage() {
             <TabsList className="w-full">
               <TabsTrigger value="tekli" className="flex-1">Tekli Ekle</TabsTrigger>
               <TabsTrigger value="excel" className="flex-1">Excel ile Ekle</TabsTrigger>
+              <TabsTrigger value="hazir" className="flex-1 font-semibold text-primary">Hazır Liste</TabsTrigger>
             </TabsList>
             <TabsContent value="tekli">
               <form onSubmit={handleAddStudent} className="space-y-3 mt-2">
@@ -865,6 +904,48 @@ export default function CourseDetailPage() {
                   </Button>
                 </DialogFooter>
               </form>
+            </TabsContent>
+            <TabsContent value="hazir">
+              <div className="space-y-4 mt-4">
+                <p className="text-sm text-muted-foreground">
+                  Sunucuda tanımlı olan sınıf listelerinden birini seçerek öğrencileri topluca ekleyin.
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <Select value={selGrade} onValueChange={setSelGrade}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Sınıf" />
+                    </SelectTrigger>
+                    <SelectContent side="bottom" className="z-[101]">
+                      {grades.map(g => (
+                        <SelectItem key={g} value={g}>{g}. Sınıf</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+
+                  <Select value={selSection} onValueChange={setSelSection}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Şube" />
+                    </SelectTrigger>
+                    <SelectContent side="bottom" className="z-[101]">
+                      {sections.map(s => (
+                        <SelectItem key={s} value={s}>{s} Şubesi</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Button 
+                  className="w-full" 
+                  disabled={!selGrade || !selSection || excelParsing}
+                  onClick={() => loadTemplate(selGrade + selSection)}
+                >
+                  {excelParsing ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Download className="mr-2 h-4 w-4" />
+                  )}
+                  Listeyi İndir ve Önizle
+                </Button>
+              </div>
             </TabsContent>
             <TabsContent value="excel">
               <div className="mt-4 space-y-3">
