@@ -206,9 +206,26 @@ export default function CourseDetailPage() {
     setExcelError(null)
     try {
       const result = await parseClassTemplate(className)
-      setParsedStudents(result)
+      
+      const existingNos = new Set(students.map(s => String(s.no).trim().toLowerCase()))
+      const newStudents = result.filter(s => !existingNos.has(String(s.no).trim().toLowerCase()))
+      const duplicatesCount = result.length - newStudents.length
+
+      if (newStudents.length === 0) {
+        throw new Error('Listedeki tüm öğrenciler bu sınıfta zaten kayıtlı.')
+      }
+
+      if (duplicatesCount > 0) {
+        toast({
+          title: 'Bilgi',
+          description: `${duplicatesCount} öğrenci zaten kayıtlı olduğu için atlandı.`,
+        })
+      }
+
+      setParsedStudents(newStudents)
+      setAddStudentOpen(false)
       const urls: Record<number, string> = {}
-      result.forEach((s, i) => {
+      newStudents.forEach((s, i) => {
         if (s.foto) urls[i] = URL.createObjectURL(s.foto)
       })
       setPreviewUrls(urls)
@@ -291,6 +308,14 @@ export default function CourseDetailPage() {
 
   const handleAddStudent = async (e: React.FormEvent) => {
     e.preventDefault()
+    
+    const targetNo = String(studentForm.no).trim().toLowerCase()
+    const exists = students.some(s => String(s.no).trim().toLowerCase() === targetNo)
+    if (exists) {
+      toast({ title: 'Hata', description: 'Bu numaraya sahip bir öğrenci zaten mevcut.', variant: 'destructive' })
+      return
+    }
+
     setStudentSaving(true)
     await addStudent(studentForm)
     setStudentForm(EMPTY_STUDENT)
@@ -309,11 +334,19 @@ export default function CourseDetailPage() {
       const result = await parseStudentExcel(file)
 
       // Sınıfta zaten olan öğrencileri filtrele (numaraya göre)
-      const existingNos = new Set(students.map(s => s.no))
-      const newStudents = result.filter(s => !existingNos.has(s.no))
+      const existingNos = new Set(students.map(s => String(s.no).trim().toLowerCase()))
+      const newStudents = result.filter(s => !existingNos.has(String(s.no).trim().toLowerCase()))
+      const duplicatesCount = result.length - newStudents.length
 
       if (newStudents.length === 0) {
         throw new Error('Dosyadaki tüm öğrenciler bu sınıfta zaten kayıtlı.')
+      }
+
+      if (duplicatesCount > 0) {
+        toast({
+          title: 'Bilgi',
+          description: `${duplicatesCount} öğrenci zaten kayıtlı olduğu için atlandı.`,
+        })
       }
 
       setParsedStudents(newStudents)

@@ -162,10 +162,10 @@ export function SpotlightDialog({ open, onOpenChange }: SpotlightDialogProps) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-[90] bg-black/40 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
         <DialogPrimitive.Content
           className={cn(
-            'fixed left-1/2 top-16 z-50 w-[calc(100%-2rem)] max-w-xl -translate-x-1/2',
+            'fixed left-1/2 top-16 z-[90] w-[calc(100%-2rem)] max-w-xl -translate-x-1/2',
             'rounded-2xl border border-border/50 bg-background/90 backdrop-blur-xl shadow-2xl',
             'data-[state=open]:animate-in data-[state=closed]:animate-out',
             'data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0',
