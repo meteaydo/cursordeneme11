@@ -154,7 +154,7 @@ export function SeatingPlanPage() {
   const [pcSnapTarget, setPcSnapTarget] = useState<PcSnapTarget>(null)
   
   // Layout states
-  const [layoutMode, setLayoutMode] = useState<'classroom' | 'lab'>('classroom')
+  const [layoutMode, setLayoutMode] = useState<'classroom' | 'lab'>('lab')
   const [layouts, setLayouts] = useState<{ classroom: SeatObject[], lab: SeatObject[] }>({
     classroom: [],
     lab: []
@@ -553,7 +553,7 @@ export function SeatingPlanPage() {
             classroom = parsed
             activeMode = 'classroom'
           } else {
-            activeMode = parsed.activeMode || 'classroom'
+            activeMode = parsed.activeMode || 'lab'
             classroom = parsed.classroom || []
             lab = parsed.lab || []
           }
@@ -606,14 +606,14 @@ export function SeatingPlanPage() {
           if (needsPersist) persistPlan(snapped, activeMode);
 
         } catch {
-          const generated = generateClassroomLayout();
+          const generated = generateLabLayout();
           setObjects(generated);
-          persistPlan(generated, 'classroom');
+          persistPlan(generated, 'lab');
         }
       } else {
-        const generated = generateClassroomLayout();
+        const generated = generateLabLayout();
         setObjects(generated);
-        persistPlan(generated, 'classroom');
+        persistPlan(generated, 'lab');
       }
       setInitDone(true);
     }
