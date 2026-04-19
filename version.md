@@ -14,4 +14,4 @@ v1.11 15.04.2026 19:16 - Alt navigasyon barı tüm sayfalarda merkezlendi, ayarl
 v1.12 15.04.2026 19:55 - Ders kartı tasarımı sadeleştirildi (ders adı ve sınıf adı birleştirildi), tarih ve saat alanları kaldırıldı, kod temizliği yapıldı.
 v1.13 17.04.2026 22:16 - Cloudflare R2 üzerinden otomatik sınıf şablonu (fotoğraflı excel) yükleme özelliği ve seçilebilir sınıf listesi menüsü eklendi.
 
-v1.14 19.04.2026 17:32 - Tüm Dialog, Spotlight ve açılır menüler (Select) için UI katman (z-index) sorunları çözülerek panellerin altta kalması engellendi. Vercel kurulum hatalarını önlemek adına kod incelemesi/değişken temizliği yapıldı.
+v1.14 19.04.2026 17:40 - Dialog, Spotlight ve açılır menülerin Header çubuğunun arkasında kalma sorunu z-index hiyerarşisi (z-[500+]) yeniden düzenlenerek kökten çözüldü. Vercel build güvenliği sağlandı.
