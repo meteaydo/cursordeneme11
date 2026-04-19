@@ -64,7 +64,7 @@ export function useApplications(courseId: string) {
     return docRef.id
   }
 
-  const updateApplication = async (appId: string, data: { ad?: string; tarih?: string }) => {
+  const updateApplication = async (appId: string, data: { ad?: string; tarih?: string; foto?: string }) => {
     updateDoc(doc(db, 'courses', courseId, 'applications', appId), data).catch(console.error)
   }
 

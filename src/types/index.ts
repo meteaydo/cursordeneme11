@@ -51,6 +51,7 @@ export interface Application {
   courseId: string
   ad: string
   tarih: string
+  foto?: string
   createdAt: Date
 }
 

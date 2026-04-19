@@ -14,4 +14,6 @@ v1.11 15.04.2026 19:16 - Alt navigasyon barı tüm sayfalarda merkezlendi, ayarl
 v1.12 15.04.2026 19:55 - Ders kartı tasarımı sadeleştirildi (ders adı ve sınıf adı birleştirildi), tarih ve saat alanları kaldırıldı, kod temizliği yapıldı.
 v1.13 17.04.2026 22:16 - Cloudflare R2 üzerinden otomatik sınıf şablonu (fotoğraflı excel) yükleme özelliği ve seçilebilir sınıf listesi menüsü eklendi.
 
-v1.14 19.04.2026 17:40 - Dialog, Spotlight ve açılır menülerin Header çubuğunun arkasında kalma sorunu z-index hiyerarşisi (z-[500+]) yeniden düzenlenerek kökten çözüldü. Vercel build güvenliği sağlandı.
+v1.14 19.04.2026 17:40 - Dialog, Spotlight ve açılır menülerin Header çubuğunun arkasında kalma sorunu z-index hiyerarşisi (z-[500+]) yeniden düzenlenerek kökten çözüldü. Mobil cihazlarda Header'da uzun ders isimlerinin sığmama sorunu çözülerek başlığa maksimum genişlik verildi. Geri butonundaki sayfa yönlendirme metni çift satırlı tasarımla ikon altına alınarak ekrana kazandırıldı. Uygulama kartlarının (etiketler) düzensiz uzaması engellenerek sabit genişliğe ve "seçili olanda %25 uzama + en sola akıllı kaydırma" özelliklerine kavuşturuldu. Uygulamalara özel 'Kapak Fotoğrafı' altyapısı (Firestore ve Storage) kurularak, Öğrenci listesindeki karta basılı tutunca açılan "Uygulamayı Düzenle" paneline entegre edildi (Kameradan çekim ve Galeriden yükleme desteğiyle birlikte). Vercel build güvenliği sağlandı.
+
+v1.15 20.04.2026

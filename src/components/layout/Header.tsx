@@ -37,16 +37,14 @@ export function Header({
       <div className={`${hideTitleOnDesktop ? 'max-w-none md:px-[50px]' : 'container max-w-2xl mx-auto'} flex items-center justify-between h-14 px-4 gap-2 relative overflow-visible`}>
         <div className="flex-1 flex items-center justify-start min-w-10 pointer-events-auto gap-1">
           {showBack && (
-            <div className="flex items-center gap-1.5 -ml-2">
-              <Button variant="ghost" size="icon" onClick={handleBack} className="shrink-0">
-                <ArrowLeft className="h-5 w-5" />
-              </Button>
+            <button onClick={handleBack} className="flex flex-col items-center justify-center -ml-2 w-14 h-12 rounded-xl hover:bg-slate-100/50 active:scale-95 transition-all outline-none shrink-0 group">
+              <ArrowLeft className="h-5 w-5 text-slate-700 mb-0.5 group-hover:-translate-x-0.5 transition-transform" />
               {backTitle && (
-                <span className="text-[11px] font-medium text-slate-500/50 -ml-1.5 truncate max-w-[100px]" title={backTitle}>
-                  ({backTitle})
+                <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider line-clamp-2 leading-tight w-[60px] text-center px-0.5 break-words" title={backTitle}>
+                  {backTitle}
                 </span>
               )}
-            </div>
+            </button>
           )}
           {user && showLogout && (
             <Button variant="ghost" onClick={logout} title="Çıkış yap" className="text-slate-500 px-2 h-9 gap-1.5 -ml-2">
@@ -61,7 +59,7 @@ export function Header({
           )}
         </div>
         
-        <h1 className={`absolute left-1/2 -translate-x-1/2 font-semibold text-[13px] truncate text-center uppercase tracking-[0.15em] w-[40%] text-slate-800 ${hideTitleOnDesktop ? 'md:hidden' : ''}`}>
+        <h1 className={`absolute left-1/2 -translate-x-1/2 font-semibold text-[13px] md:text-[14px] truncate text-center uppercase tracking-wider w-[calc(100%-120px)] md:w-[calc(100%-200px)] text-slate-800 ${hideTitleOnDesktop ? 'md:hidden' : ''}`}>
           {title}
         </h1>
 

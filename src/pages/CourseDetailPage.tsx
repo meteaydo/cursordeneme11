@@ -60,7 +60,7 @@ export default function CourseDetailPage() {
   const [reportOpen, setReportOpen] = useState(false)
 
   // App form
-  const [appForm, setAppForm] = useState({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd') })
+  const [appForm, setAppForm] = useState({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd'), foto: '' as string | undefined })
   const [appSaving, setAppSaving] = useState(false)
   const [newlyAddedAppId, setNewlyAddedAppId] = useState<string | null>(null)
 
@@ -237,7 +237,11 @@ export default function CourseDetailPage() {
     }
   }
 
-  const handleAppSelect = (app: Application) => {
+  const handleAppSelect = (app: Application, e?: React.MouseEvent<HTMLButtonElement>) => {
+    if (e && e.currentTarget) {
+      e.currentTarget.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'start' })
+    }
+
     const stickyHeader = stickyHeaderRef.current
     const container = studentsContainerRef.current
 
@@ -271,7 +275,7 @@ export default function CourseDetailPage() {
   const handleAppContextMenu = (e: React.MouseEvent, app: Application) => {
     e.preventDefault()
     setAppToEdit(app)
-    setAppForm({ ad: app.ad, tarih: app.tarih })
+    setAppForm({ ad: app.ad, tarih: app.tarih, foto: app.foto })
     setEditAppOpen(true)
   }
 
@@ -279,10 +283,10 @@ export default function CourseDetailPage() {
     e.preventDefault()
     if (!appToEdit) return
     setAppSaving(true)
-    await updateApplication(appToEdit.id, { ad: appForm.ad, tarih: appForm.tarih })
+    await updateApplication(appToEdit.id, { ad: appForm.ad, tarih: appForm.tarih, foto: appForm.foto })
     setEditAppOpen(false)
     setAppToEdit(null)
-    setAppForm({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd') })
+    setAppForm({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd'), foto: undefined })
     setAppSaving(false)
   }
 
@@ -505,14 +509,20 @@ export default function CourseDetailPage() {
   }
 
   const takePhoto = async () => {
-    if (!canvasRef.current || !videoRef.current || !selectedApp || !cameraStudentId) return
+    if (!canvasRef.current || !videoRef.current || !cameraStudentId) return
+    if (cameraStudentId !== 'APP_COVER_EDIT' && !selectedApp) return
+
     const ctx = canvasRef.current.getContext('2d')!
     canvasRef.current.width = videoRef.current.videoWidth
     canvasRef.current.height = videoRef.current.videoHeight
     ctx.drawImage(videoRef.current, 0, 0)
     canvasRef.current.toBlob(async (blob) => {
       if (!blob) return
-      uploadPhoto(blob, cameraStudentId)
+      if (cameraStudentId === 'APP_COVER_EDIT') {
+        uploadAppPhoto(blob)
+      } else if (selectedApp) {
+        uploadPhoto(blob, cameraStudentId)
+      }
     }, 'image/jpeg', 0.8)
   }
 
@@ -553,6 +563,39 @@ export default function CourseDetailPage() {
       closeCamera()
     } catch {
       toast({ title: 'Hata', description: 'Fotoğraf yüklenemedi.', variant: 'destructive' })
+    } finally {
+      setPhotoUploading(false)
+      setCameraStudentId(null)
+    }
+  }
+
+  const handleAppFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !appToEdit) return
+
+    setCameraStudentId('APP_COVER_EDIT')
+    uploadAppPhoto(file)
+  }
+
+  const uploadAppPhoto = async (fileOrBlob: Blob | File) => {
+    if (!appToEdit) return
+    setPhotoUploading(true)
+
+    const tempUrl = URL.createObjectURL(fileOrBlob)
+    setAppForm(prev => ({ ...prev, foto: tempUrl }))
+
+    try {
+      const key = `applications/${appToEdit.id}/cover.jpg`
+      const localUrl = await queueImageUpload(fileOrBlob, key, {
+        collection: `courses/${id}/applications`,
+        docId: appToEdit.id,
+        field: 'foto'
+      })
+
+      setAppForm(prev => ({ ...prev, foto: localUrl }))
+      closeCamera()
+    } catch {
+      toast({ title: 'Hata', description: 'Uygulama fotoğrafı yüklenemedi.', variant: 'destructive' })
     } finally {
       setPhotoUploading(false)
       setCameraStudentId(null)
@@ -719,15 +762,15 @@ export default function CourseDetailPage() {
                 {applications.map((app) => (
                   <button
                     key={app.id}
-                    onClick={() => handleAppSelect(app)}
+                    onClick={(e) => handleAppSelect(app, e)}
                     onContextMenu={(e) => handleAppContextMenu(e, app)}
-                    className={`shrink-0 text-left px-3 py-2 rounded-lg border text-sm transition-all select-none active:scale-110 active:animate-pulse active:z-50 active:shadow-lg ${selectedApp?.id === app.id
-                      ? 'bg-primary text-primary-foreground border-primary'
-                      : 'bg-white border-border hover:border-primary/50'
+                    className={`shrink-0 text-left px-3 py-2 rounded-xl border text-sm transition-all duration-300 select-none overflow-hidden ${selectedApp?.id === app.id
+                      ? 'w-[140px] bg-primary text-primary-foreground border-primary shadow-md'
+                      : 'w-[112px] bg-white border-border hover:border-primary/50'
                       }`}
                   >
-                    <div className="font-medium">{app.ad}</div>
-                    <div className={`text-xs mt-0.5 ${selectedApp?.id === app.id ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
+                    <div className="font-medium truncate">{app.ad}</div>
+                    <div className={`text-[11px] mt-0.5 truncate ${selectedApp?.id === app.id ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
                       {format(new Date(app.tarih + 'T12:00:00'), 'd MMM yyyy', { locale: tr })}
                     </div>
                   </button>
@@ -857,16 +900,49 @@ export default function CourseDetailPage() {
             </DialogDescription>
           </DialogHeader>
           <form onSubmit={handleEditApp} className="space-y-4 pt-2">
-            <div className="space-y-2">
-              <Label htmlFor="editAppAd">Uygulama Adı *</Label>
-              <Input id="editAppAd" placeholder="1. Uygulama" value={appForm.ad}
-                onChange={(e) => setAppForm({ ...appForm, ad: e.target.value })} required />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="editAppTarih">Tarih *</Label>
-              <Input id="editAppTarih" type="date" value={appForm.tarih}
-                className="block w-full appearance-none"
-                onChange={(e) => setAppForm({ ...appForm, tarih: e.target.value })} required />
+            <div className="flex gap-4 items-start">
+              <div className="flex flex-col gap-2 shrink-0">
+                <div className="w-24 h-24 rounded-xl border-2 border-dashed border-border overflow-hidden flex items-center justify-center relative bg-accent/30">
+                  {appForm.foto ? (
+                    <OfflineImage src={appForm.foto} alt="Uygulama Kapak" className="w-full h-full object-cover" />
+                  ) : (
+                    <div className="text-center text-muted-foreground flex flex-col items-center">
+                      <Camera className="w-6 h-6 mb-1 opacity-50" />
+                      <span className="text-[10px] font-medium leading-tight">Fotoğraf<br/>Ekle</span>
+                    </div>
+                  )}
+                  {photoUploading && cameraStudentId === 'APP_COVER_EDIT' && (
+                    <div className="absolute inset-0 bg-background/50 flex items-center justify-center backdrop-blur-[1px]">
+                      <Loader2 className="h-6 w-6 animate-spin text-primary" />
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-1">
+                  <Button type="button" size="sm" variant="outline" className="flex-1 px-0 h-8" onClick={() => openCamera('APP_COVER_EDIT')} title="Kameradan Çek">
+                    <Camera className="w-4 h-4" />
+                  </Button>
+                  <label className="flex-1 cursor-pointer">
+                    <div className="h-8 inline-flex w-full items-center justify-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground" title="Dosyadan Yükle">
+                      <Upload className="w-4 h-4" />
+                    </div>
+                    <input type="file" accept="image/*" className="hidden" onChange={handleAppFileUpload} />
+                  </label>
+                </div>
+              </div>
+              
+              <div className="flex-1 flex flex-col gap-4">
+                <div className="space-y-2">
+                  <Label htmlFor="editAppAd">Uygulama Adı *</Label>
+                  <Input id="editAppAd" placeholder="1. Uygulama" value={appForm.ad}
+                    onChange={(e) => setAppForm({ ...appForm, ad: e.target.value })} required />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="editAppTarih">Tarih *</Label>
+                  <Input id="editAppTarih" type="date" value={appForm.tarih}
+                    className="block w-full appearance-none"
+                    onChange={(e) => setAppForm({ ...appForm, tarih: e.target.value })} required />
+                </div>
+              </div>
             </div>
             <DialogFooter className="flex-col sm:flex-row gap-2 pt-2">
               <Button
