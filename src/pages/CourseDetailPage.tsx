@@ -306,7 +306,7 @@ export default function CourseDetailPage() {
     const newId = await addApplication(appForm.ad, appForm.tarih)
     if (newId) setNewlyAddedAppId(newId)
     setAddAppOpen(false)
-    setAppForm({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd') })
+    setAppForm({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd'), foto: undefined })
     setAppSaving(false)
   }
 
