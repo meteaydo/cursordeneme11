@@ -692,7 +692,7 @@ export default function CourseDetailPage() {
   return (
     <Layout title={pageTitle} showBack backTo="/courses" backTitle="Dersler" showLogout={false}>
       {excelParsing && (
-        <div className="fixed inset-0 z-[100] bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center p-4">
+        <div className="fixed inset-0 z-[600] bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center p-4">
           <div className="bg-card text-card-foreground p-6 rounded-2xl shadow-xl flex flex-col items-center max-w-sm w-full text-center space-y-4 border border-border">
             <Loader2 className="h-10 w-10 text-primary animate-spin" />
             <div className="space-y-2">
@@ -948,7 +948,7 @@ export default function CourseDetailPage() {
                     <SelectTrigger>
                       <SelectValue placeholder="Sınıf" />
                     </SelectTrigger>
-                    <SelectContent side="bottom" className="z-[101]">
+                    <SelectContent side="bottom">
                       {grades.map(g => (
                         <SelectItem key={g} value={g}>{g}. Sınıf</SelectItem>
                       ))}
@@ -959,7 +959,7 @@ export default function CourseDetailPage() {
                     <SelectTrigger>
                       <SelectValue placeholder="Şube" />
                     </SelectTrigger>
-                    <SelectContent side="bottom" className="z-[101]">
+                    <SelectContent side="bottom">
                       {sections.map(s => (
                         <SelectItem key={s} value={s}>{s} Şubesi</SelectItem>
                       ))}

@@ -279,7 +279,7 @@ export default function CoursesPage() {
                     <SelectTrigger>
                       <SelectValue placeholder="Sınıf" />
                     </SelectTrigger>
-                    <SelectContent side="bottom" className="z-[100]">
+                    <SelectContent side="bottom">
                       {grades.map(g => (
                         <SelectItem key={g} value={g}>{g}. Sınıf</SelectItem>
                       ))}
@@ -290,7 +290,7 @@ export default function CoursesPage() {
                     <SelectTrigger>
                       <SelectValue placeholder="Şube" />
                     </SelectTrigger>
-                    <SelectContent side="bottom" className="z-[100]">
+                    <SelectContent side="bottom">
                       {sections.map(s => (
                         <SelectItem key={s} value={s}>{s} Şubesi</SelectItem>
                       ))}
