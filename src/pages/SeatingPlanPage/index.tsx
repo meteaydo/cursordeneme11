@@ -134,6 +134,7 @@ export function SeatingPlanPage() {
   const [idsForAssignment, setIdsForAssignment] = useState<string[]>([])
   const [isShareOpen, setIsShareOpen] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false)
 
   // Selection DB ID Calculation
   const selectedStudentDBIds = new Set<string>();
@@ -455,9 +456,7 @@ export function SeatingPlanPage() {
   // Sayfa içi SPA Geri Dönüşünü kontrol etme
   const handleBackNavigation = () => {
     if (hasUnsavedChanges) {
-      if (window.confirm('Kaydedilmemiş değişiklikler var. Değişiklikleri kaydetmeden çıkmak istiyor musunuz?')) {
-        navigate('/courses/' + courseId);
-      }
+      setShowUnsavedConfirm(true);
     } else {
       navigate('/courses/' + courseId);
     }
@@ -1716,6 +1715,16 @@ export function SeatingPlanPage() {
           }
         }}
       />
+
+      {/* Kaydedilmemiş Değişiklikler Modalı */}
+      <UnsavedConfirmModal 
+        isOpen={showUnsavedConfirm}
+        onClose={() => setShowUnsavedConfirm(false)}
+        onConfirm={() => {
+          setShowUnsavedConfirm(false);
+          navigate('/courses/' + courseId);
+        }}
+      />
     </Layout>
   )
 }
@@ -1749,6 +1758,44 @@ function AssignmentConfirmModal({ isOpen, onClose, onConfirm }: { isOpen: boolea
               className="h-12 w-full text-slate-500 font-bold rounded-2xl hover:bg-slate-50 active:scale-95 transition-all"
             >
               Hayır, Kalsın
+            </Button>
+          </div>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+function UnsavedConfirmModal({ isOpen, onClose, onConfirm }: { isOpen: boolean, onClose: () => void, onConfirm: () => void }) {
+  if (!isOpen) return null;
+  return createPortal(
+    <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-300">
+      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md" onClick={onClose} />
+      <div className="bg-white rounded-[32px] shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden relative animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
+        <div className="p-8 flex flex-col items-center text-center gap-6">
+          <div className="w-16 h-16 bg-amber-50 rounded-full flex items-center justify-center">
+            <LayoutPanelTop className="w-8 h-8 text-amber-500" />
+          </div>
+          <div className="space-y-2">
+            <h3 className="text-xl font-bold text-slate-800">Kaydetmeden Çık?</h3>
+            <p className="text-sm text-slate-500 leading-relaxed px-4">
+              Kaydedilmemiş değişiklikleriniz var. Sayfadan ayrılırsanız bu değişiklikler kaybolacaktır.
+            </p>
+          </div>
+          <div className="flex flex-col w-full gap-3 mt-2">
+            <Button 
+              onClick={onConfirm}
+              className="h-12 w-full bg-red-600 hover:bg-red-700 text-white font-bold rounded-2xl shadow-lg shadow-red-200 active:scale-95 transition-all"
+            >
+              Kaydetmeden Çık
+            </Button>
+            <Button 
+              variant="ghost"
+              onClick={onClose}
+              className="h-12 w-full text-slate-500 font-bold rounded-2xl hover:bg-slate-50 active:scale-95 transition-all"
+            >
+              Vazgeç
             </Button>
           </div>
         </div>
