@@ -33,3 +33,5 @@ v1.19.1 20.04.2026 - PC numarası çakışması (takas/devir) durumunda oluşan 
 v1.20 20.04.2026 - Oturma planı sayfasında, öğrenci kartına tıklanarak açılan "Büyük Kart" üzerine "PC No" yönetimi paneli eklendi.
 
 v1.21 20.04.2026 - Oturma planı sayfasında "Boş Sıra"lar için tam PC yönetimi desteği getirildi. Boş sıralar artık kendi PC etiketleriyle (pc_label) eşleşebiliyor, tıklandığında büyüyerek numara değişikliğine izin veriyor ve beraberinde sürükleniyor. Yeni boş sıra eklendiğinde etiketiyle birlikte oluşması sağlandı ve tek tıkla silinmeleri için sağ üst köşelerine çöp kutusu ikonu eklendi.
+
+v1.21.1 20.04.2026

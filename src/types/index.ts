@@ -6,6 +6,7 @@ export interface SeatObject {
   linkedStudentId?: string;  // pc_label'ın ait olduğu öğrenci (canonical bağlantı)
   x: number;
   y: number;
+  eskiPcNolari?: string[]; // Boş masalar için geçmiş PC numaraları
 }
 
 export interface Course {
