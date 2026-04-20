@@ -148,8 +148,7 @@ export function SeatingPlanPage() {
   const activeApplicationId = navState?.applicationId ?? null
   const activeApplicationAd = navState?.applicationAd ?? null
 
-  // PC etiketlerinin öğrenci kartının hangi kenarına snap edileceğini belirler
-  type PcSnapSide = 'top' | 'right' | 'bottom' | 'left'
+
   
   // Layout states
   const [layoutMode, setLayoutMode] = useState<'classroom' | 'lab'>('lab')
@@ -641,7 +640,7 @@ export function SeatingPlanPage() {
     setObjects(prev => {
       // 1. Öğrenci -> Numara haritası
       const pcNoByStudent = new Map<string, string>();
-      students.forEach(s => { if (s.id && s.pcNo) pcNoByStudent.set(s.id, s.pcNo); });
+      students.forEach(s => { if (s.id) pcNoByStudent.set(s.id, s.pcNo || ''); });
       
       // 2. Numara -> ÖğrenciID haritası (Mükerrer kontrolü için)
       const studentByPcNo = new Map<string, string>();
@@ -740,14 +739,8 @@ export function SeatingPlanPage() {
     for (let i = 0; i < spots.length; i++) {
       const spot = spots[i];
       const pcNo = String(i + 1);
-      let side: PcSnapSide = 'top';
-      if (i < 9) side = 'left';
-      else if (i < 15) side = 'top';
-      else if (i < 24) side = 'right';
-      else side = (i % 2 === 0) ? 'left' : 'right';
-
-      const tempStudentObj = { x: spot.x, y: spot.y, type: 'student' } as SeatObject;
-      const pcPos = getPcSnapPosition(tempStudentObj, side);
+      const tempTargetObj = { x: spot.x, y: spot.y, type: 'student' } as SeatObject;
+      const pcPos = getPcSnapPosition(tempTargetObj);
 
       newObjects.push({
         id: uuidv4(),
@@ -870,39 +863,46 @@ export function SeatingPlanPage() {
     }
   }
 
-  // Kenar snap offset hesabı
-  const getPcSnapPosition = (studentObj: SeatObject, side: PcSnapSide): { x: number; y: number } => {
-    const CARD_W = 70, CARD_H = 70;
-    const PC_W = 60, PC_H = 34;
-    const GAP = 2;
-    switch (side) {
-      case 'top': return { x: studentObj.x + (CARD_W - PC_W) / 2, y: studentObj.y - PC_H - GAP };
-      case 'right': return { x: studentObj.x + CARD_W + GAP, y: studentObj.y + (CARD_H - PC_H) / 2 };
-      case 'bottom': return { x: studentObj.x + (CARD_W - PC_W) / 2, y: studentObj.y + CARD_H + GAP };
-      case 'left': return { x: studentObj.x - PC_W - GAP, y: studentObj.y + (CARD_H - PC_H) / 2 };
-    }
+  const getPcSnapPosition = (targetObj: SeatObject): { x: number; y: number } => {
+    // etiketi objenin tam sol üst köşesine merkeze alacak şekilde yerleştir
+    const PC_W = 60, PC_H = 24;
+    return { 
+      x: targetObj.x - PC_W / 2, 
+      y: targetObj.y - PC_H / 2 
+    };
   };
 
   const snapPcLabelsToEdges = (objs: SeatObject[]): SeatObject[] => {
-    const SIDES: PcSnapSide[] = ['top', 'right', 'bottom', 'left'];
     const studentMap = new Map<string, SeatObject>();
-    objs.forEach(o => { if (o.type === 'student' && o.studentId) studentMap.set(o.studentId, o); });
+    objs.forEach(o => { 
+      if ((o.type === 'student' && o.studentId) || o.type === 'empty_desk') {
+        studentMap.set(o.id, o); 
+      }
+    });
+
+    // Student ID -> Object Map for linked labels
+    const studentIdToObjMap = new Map<string, SeatObject>();
+    objs.forEach(o => {
+      if (o.type === 'student' && o.studentId) studentIdToObjMap.set(o.studentId, o);
+    });
 
     return objs.map(obj => {
-      if (obj.type !== 'pc_label' || !obj.linkedStudentId) return obj;
-      const studentObj = studentMap.get(obj.linkedStudentId);
-      if (!studentObj) return obj;
-      const PC_W = 60, PC_H = 34;
-      const labelCx = obj.x + PC_W / 2;
-      const labelCy = obj.y + PC_H / 2;
-      let bestSide: PcSnapSide = 'top';
-      let bestDist = Infinity;
-      for (const side of SIDES) {
-        const pos = getPcSnapPosition(studentObj, side);
-        const d = Math.hypot(pos.x + PC_W / 2 - labelCx, pos.y + PC_H / 2 - labelCy);
-        if (d < bestDist) { bestDist = d; bestSide = side; }
+      if (obj.type !== 'pc_label') return obj;
+      
+      let targetObj: SeatObject | undefined;
+      
+      if (obj.linkedStudentId) {
+        targetObj = studentIdToObjMap.get(obj.linkedStudentId);
+      } else {
+        // En yakın boş sırayı veya öğrenciyi bul (başlangıç için)
+        targetObj = Array.from(studentMap.values()).find(s => 
+          Math.hypot(s.x - obj.x, s.y - obj.y) < 100
+        );
       }
-      const snapped = getPcSnapPosition(studentObj, bestSide);
+
+      if (!targetObj) return obj;
+      
+      const snapped = getPcSnapPosition(targetObj);
       return { ...obj, x: Math.round(snapped.x), y: Math.round(snapped.y) };
     });
   };
@@ -1348,6 +1348,8 @@ export function SeatingPlanPage() {
                                 key={obj.id}
                                 item={obj}
                                 student={obj.type === 'student' ? students.find(s => s.id === obj.studentId) : undefined}
+                                studentsList={students}
+                                updateStudentData={updateStudent}
                                 isSelectionMode={isSelectionMode}
                                 isSelected={selectedIds.includes(obj.id)}
                                 isFollowerDrag={isFollowerDrag}

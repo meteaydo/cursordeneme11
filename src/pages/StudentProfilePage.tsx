@@ -1137,8 +1137,19 @@ export default function StudentProfilePage() {
         cancelText="İptal"
         onConfirm={() => {
           if (pcConflictConfirm && form) {
+            // Çakışan öğrencinin PC numarasını temizle (Veritabanı bazlı)
+            updateStudent(pcConflictConfirm.conflictStudent.id, { pcNo: '' });
+            
+            // Mevcut formu güncelle (AutoSave tetiklenecek)
             setForm({ ...form, pcNo: pcConflictConfirm.newPcNo });
             setLocalPcNo(pcConflictConfirm.newPcNo);
+            setPcConflictConfirm(null);
+
+            toast({
+              title: "PC Aktarıldı",
+              description: `${pcConflictConfirm.conflictStudent.adSoyad} isimli öğrencinin PC numarası boşaltıldı.`,
+              variant: "blue"
+            });
           }
         }}
       />

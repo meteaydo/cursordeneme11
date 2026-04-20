@@ -23,3 +23,11 @@ v1.15.3 20.04.2026 - Sistem genelindeki tarayıcı uyarıları modern dialog (Co
 v1.16 20.04.2026 - Öğrenci PC numarası çakışma yönetimi ve doğrulama sistemi eklendi. Profil sayfası ve oturma planı üzerinde mükerrer atamaları engelleyen akıllı onay dialogu (ConfirmDialog) entegre edildi. PC no devir/takas işlemleri kontrollü hale getirildi.
 
 v1.17 20.04.2026 - PC no etiketleri oturma planında sürüklenemeyen, öğrenci kartına yapışık yapıya dönüştürüldü. Tüm pc_label drag/snap/atama mantığı, AssignmentConfirmModal, pcSwapConfirm, SVG bağlantı çizgileri ve ilgili boştaki değişkenler temizlendi. PC no değişikliği artık sadece öğrenci profili sayfasından yapılabiliyor.
+
+v1.18 20.04.2026 - PC no etiketleri öğrenci kartlarının sol üst köşesine saat yönünde 45 derece döndürülerek yerleştirildi. Etiket yüksekliği daraltıldı ve metin sola yaslanarak daha kompakt bir görünüm sağlandı.
+
+v1.19 20.04.2026 - Öğrenci kartlarına dikey öğrenci numarası eklendi. Numara yazı stili (boyut ve renk) karttaki ad-soyad etiketiyle senkronize edildi (9px, Bold, Slate-800). Kartın sağ kenarında, arkaplansız ve -90 derece döndürülmüş şekilde konumlandırıldı.
+
+v1.19.1 20.04.2026 - PC numarası çakışması (takas/devir) durumunda oluşan senkronizasyon hatası düzeltildi. Bir öğrenciye başka bir öğrencinin PC numarası atandığında, eski sahibinin verisi artık otomatik olarak temizleniyor. Aynı zamanda oturma planı sayfasındaki PC no etiketlerine de boş (temizlenmiş) durum anında yansıyor.
+
+v1.20 20.04.2026 - Oturma planı sayfasında, öğrenci kartına tıklanarak açılan "Büyük Kart" üzerine "PC No" yönetimi paneli eklendi.

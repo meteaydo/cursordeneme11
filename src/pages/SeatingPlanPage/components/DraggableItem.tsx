@@ -4,11 +4,20 @@ import type { SeatObject, Score } from '@/types'
 import { OfflineImage } from '@/components/ui/OfflineImage'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowUpRight, Camera, Upload, X } from 'lucide-react'
+import { ArrowUpRight, Camera, Upload, X, Check } from 'lucide-react'
+import { useStudents } from '@/hooks/useStudents'
+import { Card, CardContent } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import { toast } from '@/hooks/use-toast'
+import { formatClassName } from '@/lib/utils'
 
 interface DraggableItemProps {
   item: SeatObject
-  student?: { id: string; adSoyad: string; no: string; foto?: string }
+  student?: { id: string; adSoyad: string; no: string; foto?: string; pcNo?: string; eskiPcNolari?: string[] }
+  studentsList?: any[]
+  updateStudentData?: (id: string, data: any) => Promise<void>
   isSelectionMode?: boolean
   isSelected?: boolean
   isFollowerDrag?: boolean
@@ -22,7 +31,7 @@ interface DraggableItemProps {
 }
 
 export function DraggableItem({
-  item, student, isSelectionMode, isSelected, isFollowerDrag,
+  item, student, studentsList, updateStudentData, isSelectionMode, isSelected, isFollowerDrag,
   onSelectionToggle,
   activeApplicationId, score, onNumpadOpen, onDevamsizToggle, onCameraOpen, onFileUpload
 }: DraggableItemProps) {
@@ -135,7 +144,7 @@ export function DraggableItem({
 
   // pc_label için özel boyut
   const itemWidth = isPcLabel ? 64 : 70;
-  const itemHeight = isPcLabel ? 36 : 70;
+  const itemHeight = isPcLabel ? 24 : 70;
 
   return (
     <>
@@ -175,6 +184,8 @@ export function DraggableItem({
       {isExpanded && student && item.type === 'student' && createPortal(
         <ExpandedCardOverlay
           student={student}
+          studentsList={studentsList || []}
+          updateStudentData={updateStudentData || (async () => {})}
           score={score}
           hasActiveApp={!!activeApplicationId}
           onClose={() => setIsExpanded(false)}
@@ -228,6 +239,13 @@ function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, has
           </div>
         </div>
 
+        {/* Öğrenci Numarası (Dikey - Sağ kenar) */}
+        <div className="absolute top-4 -right-2 pointer-events-none z-30 select-none">
+          <span className="text-[9px] font-bold text-slate-800 block transform -rotate-90 origin-center whitespace-nowrap">
+            {student.no}
+          </span>
+        </div>
+
         {/* Puan rozeti */}
         {hasActiveApp && puan !== null && puan !== undefined && (
           <div className="absolute -top-2 -left-2 w-6 h-6 bg-primary text-white rounded-full flex items-center justify-center z-20 shadow-md opacity-50">
@@ -255,7 +273,9 @@ function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, has
   if (item.type === 'pc_label') {
     const isLinked = !!item.linkedStudentId;
     return (
-      <div className={`w-[60px] h-[34px] backdrop-blur-sm border-2 rounded-xl flex items-center justify-center select-none transition-all duration-200 ${
+      <div 
+        style={{ transform: 'rotate(45deg)' }}
+        className={`w-[60px] h-[24px] backdrop-blur-sm border-2 rounded-xl flex items-center justify-start pl-1.5 select-none transition-all duration-200 ${
         isLinked
           ? 'bg-white/70 border-slate-400/15 shadow-sm'
           : 'bg-white/40 border-slate-300/20 shadow-sm'
@@ -301,7 +321,9 @@ function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, has
 // ─── Büyük kart overlay (document.body portalı, zoom'dan tamamen bağımsız) ───
 
 interface ExpandedCardOverlayProps {
-  student: { id: string; adSoyad: string; no: string; foto?: string }
+  student: { id: string; adSoyad: string; no: string; foto?: string; pcNo?: string; eskiPcNolari?: string[] }
+  studentsList: any[]
+  updateStudentData: (id: string, data: any) => Promise<void>
   score?: Score
   hasActiveApp: boolean
   onClose: () => void
@@ -313,12 +335,132 @@ interface ExpandedCardOverlayProps {
 }
 
 function ExpandedCardOverlay({
-  student, score, hasActiveApp,
+  student, studentsList: students, updateStudentData: updateStudent, score, hasActiveApp,
   onClose, onGoToProfile,
   onNumpadOpen, onDevamsizToggle, onCameraOpen, onFileUpload
 }: ExpandedCardOverlayProps) {
   const isDevamsiz = score?.devamsiz ?? false
   const puan = score?.puan
+
+  const LONG_PRESS_MS = 200
+  const MOVE_THRESHOLD = 5
+
+  const [formPcNo, setFormPcNo] = useState(student.pcNo || '')
+  const [formEski, setFormEski] = useState<string[]>(student.eskiPcNolari || [])
+  const [localPcNo, setLocalPcNo] = useState(student.pcNo || '')
+
+  useEffect(() => {
+    if (student) {
+      // Sadece form güncellendiğinde, ancak local input formla uyumluysa güncellesin
+      // Bu sayede kullanıcı yazarken arkaplan senkronizasyonu yazdığını aniden silmez
+      setFormPcNo(student.pcNo || '')
+      setFormEski(student.eskiPcNolari || [])
+      setLocalPcNo(prev => {
+        if (prev === formPcNo) return student.pcNo || '';
+        return prev; // Kullanıcı şu an yazıyor, ellemeyelim
+      });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [student.pcNo, student.eskiPcNolari])
+
+  const [pcConflictConfirm, setPcConflictConfirm] = useState<{ newPcNo: string, conflictStudent: any } | null>(null)
+  
+  const [pcDragReady, setPcDragReady] = useState(false)
+  const [pcDragging, setPcDragging] = useState(false)
+  const [ghostPos, setGhostPos] = useState({ x: 0, y: 0 })
+  const [isDragOver, setIsDragOver] = useState(false)
+  
+  const pcInputRef = useRef<HTMLInputElement>(null)
+  const pcWrapRef = useRef<HTMLDivElement>(null)
+  const dropZoneRef = useRef<HTMLDivElement>(null)
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const startPos = useRef({ x: 0, y: 0 })
+  const pIdRef = useRef<number | null>(null)
+
+  const updateCardStudent = (newPcNo: string, newEski: string[]) => {
+    setFormPcNo(newPcNo)
+    setFormEski(newEski)
+    updateStudent(student.id, { pcNo: newPcNo, eskiPcNolari: newEski })
+  }
+
+  const cancelLongPress = () => {
+    if (longPressTimer.current) { clearTimeout(longPressTimer.current); longPressTimer.current = null }
+  }
+
+  const handlePcPointerDown = (e: React.PointerEvent) => {
+    if (!formPcNo) return
+    startPos.current = { x: e.clientX, y: e.clientY }
+    setGhostPos({ x: e.clientX, y: e.clientY })
+    longPressTimer.current = setTimeout(() => {
+      pcInputRef.current?.blur()
+      pIdRef.current = e.pointerId
+      pcWrapRef.current?.setPointerCapture(e.pointerId)
+      setPcDragReady(true)
+      navigator.vibrate?.(30)
+    }, LONG_PRESS_MS)
+  }
+
+  const handlePcPointerMove = (e: React.PointerEvent) => {
+    if (!pcDragReady && longPressTimer.current) {
+      if (Math.abs(e.clientX - startPos.current.x) > MOVE_THRESHOLD || Math.abs(e.clientY - startPos.current.y) > MOVE_THRESHOLD) {
+        cancelLongPress()
+      }
+      return
+    }
+    if (!pcDragReady) return
+    setPcDragging(true)
+    setGhostPos({ x: e.clientX, y: e.clientY })
+    const dz = dropZoneRef.current
+    if (dz) {
+      const r = dz.getBoundingClientRect()
+      setIsDragOver(e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom)
+    }
+  }
+
+  const handlePcPointerUp = () => {
+    cancelLongPress()
+    if (pIdRef.current !== null) {
+      try { pcWrapRef.current?.releasePointerCapture(pIdRef.current) } catch { /* */ }
+      pIdRef.current = null
+    }
+    if (pcDragReady && isDragOver && formPcNo) {
+      updateCardStudent('', [formPcNo, ...formEski.filter((p) => p !== formPcNo)])
+      setLocalPcNo('')
+    }
+    setPcDragReady(false)
+    setPcDragging(false)
+    setIsDragOver(false)
+  }
+
+  const handlePcNoBlurOrEnter = (val: string): boolean => {
+    const newPcNo = formatClassName(val);
+    setLocalPcNo(newPcNo);
+    
+    if (newPcNo === formPcNo) return false;
+    
+    if (newPcNo) {
+      const conflict = students.find(s => s.pcNo === newPcNo && s.id !== student.id);
+      if (conflict) {
+        setPcConflictConfirm({ newPcNo, conflictStudent: conflict });
+        return true;
+      }
+    }
+    updateCardStudent(newPcNo, formEski);
+    return false;
+  };
+
+  const handleClose = () => {
+    if (localPcNo !== formPcNo) {
+      const hasConflict = handlePcNoBlurOrEnter(localPcNo);
+      if (hasConflict) return; // Çakışma modalı açılıyorsa kapatmayı iptal et
+    }
+    onClose();
+  }
+
+  const removeOldPc = (idx: number) => {
+    const nextArr = formEski.filter((_, i) => i !== idx);
+    updateCardStudent(formPcNo, nextArr);
+  }
 
   // Ekrana sığacak kare boyut
   const PADDING = 48
@@ -329,7 +471,7 @@ function ExpandedCardOverlay({
     <div
       className="fixed inset-0 z-[200] flex items-center justify-center p-6"
       style={{ background: 'rgba(0,0,0,0.45)', backdropFilter: 'blur(4px)' }}
-      onPointerDown={(e) => { if (e.target === e.currentTarget) onClose() }}
+      onPointerDown={(e) => { if (e.target === e.currentTarget) handleClose() }}
     >
       <div
         className="flex flex-col items-center gap-3 animate-in zoom-in-90 fade-in duration-200"
@@ -444,7 +586,128 @@ function ExpandedCardOverlay({
           </div>
         )}
 
+        {/* Form - PC Yönetimi */}
+        <Card className="border-blue-400/80 border-2 bg-blue-50/10 shadow-md w-full" style={{ maxWidth: cardSize }}>
+          <CardContent className="p-3 space-y-2">
+            <style>{`
+              @keyframes pc-wiggle {
+                0%, 100% { transform: scale(1.12) rotate(0deg); }
+                20% { transform: scale(1.12) rotate(-3deg); }
+                40% { transform: scale(1.12) rotate(3deg); }
+                60% { transform: scale(1.12) rotate(-2deg); }
+                80% { transform: scale(1.12) rotate(2deg); }
+              }
+            `}</style>
+            <div className="grid grid-cols-[1fr_2fr] gap-2 items-start">
+              <div className="space-y-1">
+                <Label className="text-xs">PC No</Label>
+                <div
+                  ref={pcWrapRef}
+                  onPointerDown={handlePcPointerDown}
+                  onPointerMove={handlePcPointerMove}
+                  onPointerUp={handlePcPointerUp}
+                  onPointerCancel={handlePcPointerUp}
+                  style={pcDragReady && !pcDragging ? { animation: 'pc-wiggle 0.4s ease-in-out infinite' } : undefined}
+                  className={`relative flex items-center touch-none transition-shadow rounded-md ${pcDragReady ? 'shadow-lg ring-2 ring-primary' : ''}`}
+                >
+                  <Input
+                    ref={pcInputRef}
+                    value={localPcNo}
+                    onChange={(e) => setLocalPcNo(e.target.value)}
+                    onBlur={(e) => handlePcNoBlurOrEnter(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handlePcNoBlurOrEnter(e.currentTarget.value)
+                        pcInputRef.current?.blur()
+                      }
+                    }}
+                    className={`h-8 font-bold px-1.5 text-center ${pcDragReady ? 'pointer-events-none' : ''}`}
+                  />
+                  {localPcNo !== formPcNo && !pcDragReady && (
+                    <button
+                      type="button"
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const hasConflict = handlePcNoBlurOrEnter(localPcNo);
+                        if (!hasConflict) onClose();
+                      }}
+                      className="absolute right-1 w-6 h-6 flex items-center justify-center bg-green-500 rounded-md text-white shadow-sm hover:bg-green-600 active:scale-95 transition-all z-10 animate-in zoom-in-50 duration-200"
+                    >
+                      <Check className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs pl-1">Eski PC Noları</Label>
+                <div
+                  ref={dropZoneRef}
+                  className={`min-h-[32px] rounded-md border-2 border-dashed px-1.5 py-1 transition-all flex flex-wrap gap-1 items-center justify-center ${isDragOver
+                    ? 'border-primary bg-primary/10 scale-[1.02]'
+                    : pcDragReady
+                      ? 'border-primary/40 bg-primary/5'
+                      : 'border-border bg-secondary/30'
+                    }`}
+                >
+                  {formEski.length === 0 && !pcDragReady && (
+                    <span className="text-[9px] text-muted-foreground w-full text-center">PC No → buraya sürükle</span>
+                  )}
+                  {formEski.length === 0 && pcDragReady && !isDragOver && (
+                    <span className="text-[10px] font-bold text-primary animate-pulse w-full text-center">Buraya bırak!</span>
+                  )}
+                  {formEski.map((pc, i) => (
+                    <span key={i} className="inline-flex items-center gap-0.5 bg-background border border-border px-1.5 py-0.5 rounded text-[10px] font-medium leading-none shadow-sm">
+                      {pc}
+                      <button onClick={() => removeOldPc(i)} className="hover:text-destructive shrink-0">
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
       </div>
+
+      {pcDragging && formPcNo && (
+        <div
+          className="fixed z-[300] pointer-events-none bg-primary text-white px-3 py-1 rounded-full text-sm font-medium shadow-lg"
+          style={{ left: ghostPos.x, top: ghostPos.y, transform: 'translate(-50%, -120%)' }}
+        >
+          {formPcNo}
+        </div>
+      )}
+
+      <ConfirmDialog
+        open={!!pcConflictConfirm}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPcConflictConfirm(null);
+            setLocalPcNo(formPcNo); // Revert
+          }
+        }}
+        title="PC Numarası Çakışması"
+        description={`${pcConflictConfirm?.newPcNo} bilgisayarı şu anda "${pcConflictConfirm?.conflictStudent.adSoyad}" isimli öğrenciye atanmış durumda. Bu bilgisayarı devretmek istiyor musunuz?`}
+        confirmText="Evet, Devret"
+        cancelText="İptal"
+        onConfirm={() => {
+          if (pcConflictConfirm) {
+            updateStudent(pcConflictConfirm.conflictStudent.id, { pcNo: '' });
+            updateCardStudent(pcConflictConfirm.newPcNo, formEski);
+            setLocalPcNo(pcConflictConfirm.newPcNo);
+            setPcConflictConfirm(null);
+            toast({
+              title: "PC Aktarıldı",
+              description: `${pcConflictConfirm.conflictStudent.adSoyad} isimli öğrencinin PC numarası boşaltıldı.`,
+              variant: "blue"
+            });
+            onClose();
+          }
+        }}
+      />
     </div>
   )
 }
