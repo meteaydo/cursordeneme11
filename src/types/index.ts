@@ -2,6 +2,7 @@ export interface SeatObject {
   id: string;
   type: 'student' | 'empty_desk' | 'empty_object' | 'tahta' | 'masa' | 'pc_label';
   studentId?: string;        // Sadece 'student' tipi için
+  studentNo?: string;        // Paylaşım için öğrenci no değeri — kullanıcılar arası eşleştirme
   pcNo?: string;             // Sadece 'pc_label' tipi için
   linkedStudentId?: string;  // pc_label'ın ait olduğu öğrenci (canonical bağlantı)
   x: number;
@@ -18,6 +19,7 @@ export interface Course {
   createdAt: Date
   seatingPlan?: string; // JSON.stringify(SeatObject[]) şeklinde tutulacak
   hasPendingWrites?: boolean
+  isShared?: boolean // Paylaşıma açık mı?
 }
 
 export interface BehaviorLog {
@@ -85,4 +87,20 @@ export interface StudentFormData {
   foto?: string
   behaviorStars?: { yellow: number; purple: number }
   behaviorLogs?: BehaviorLog[]
+}
+
+/** Paylaşılmış oturma planı — ayrı Firestore koleksiyonunda saklanır */
+export interface SharedSeatingPlan {
+  id: string                          // Firestore doc ID = courseId
+  courseId: string
+  teacherId: string
+  teacherName: string
+  dersAdi: string
+  sinifAdi: string
+  layoutMode: 'classroom' | 'lab'
+  classroomLayout: SeatObject[]
+  labLayout: SeatObject[]
+  studentCount: number
+  sharedAt: Date
+  updatedAt: Date
 }

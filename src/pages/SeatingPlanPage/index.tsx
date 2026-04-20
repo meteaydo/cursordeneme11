@@ -24,11 +24,13 @@ import { useStudents } from '@/hooks/useStudents'
 import { useApplications } from '@/hooks/useApplications'
 import { queueImageUpload } from '@/lib/imageQueue'
 import { toast } from '@/hooks/use-toast'
-import type { SeatObject, Score } from '@/types'
+import type { SeatObject, Score, SharedSeatingPlan } from '@/types'
 import { DraggableItem } from './components/DraggableItem'
+import { SharedLayoutsDialog } from './components/SharedLayoutsDialog'
 import { SmartNumpad } from '@/components/ui/smart-numpad'
-import { Loader2, Save, RotateCcw, Plus, Undo2, Redo2, LayoutPanelTop, Trash2, ZoomIn, ZoomOut, Settings, FileSpreadsheet, Printer } from 'lucide-react'
+import { Loader2, Save, RotateCcw, Plus, Undo2, Redo2, LayoutPanelTop, Trash2, ZoomIn, ZoomOut, Settings, FileSpreadsheet, Printer, Download, Globe } from 'lucide-react'
 import { generateSeatingPlanExcel } from '@/services/excelSeatingService'
+import { useSharedSeatingPlans } from '@/hooks/useSharedSeatingPlans'
 
 
 
@@ -134,6 +136,10 @@ export function SeatingPlanPage() {
   const [isShareOpen, setIsShareOpen] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false)
+  const [isSharedLayoutsOpen, setIsSharedLayoutsOpen] = useState(false)
+
+  // Paylaşım hook'u — sınıf adına göre filtrelenmiş paylaşılmış düzenleri dinler
+  const { sharedPlans, loading: sharedPlansLoading, share: sharePlan, unshare: unsharePlan } = useSharedSeatingPlans(course?.sinifAdi)
 
   // Selection DB ID Calculation
   const selectedStudentDBIds = new Set<string>();
@@ -817,6 +823,143 @@ export function SeatingPlanPage() {
     }
   }
 
+  /** Paylaşım toggle'ı — açık/kapalı */
+  const handleShareToggle = async () => {
+    if (!course || !courseId) return
+    const newShared = !course.isShared
+    try {
+      if (newShared) {
+        // studentId → studentNo haritası oluştur
+        const noById = new Map<string, string>()
+        students.forEach(s => { if (s.id && s.no) noById.set(s.id, s.no) })
+
+        // Layout nesnelerine studentNo ekle (student seat'leri için)
+        const enrichLayout = (objs: SeatObject[]): SeatObject[] =>
+          objs.map(o => {
+            if (o.type === 'student' && o.studentId) {
+              const no = noById.get(o.studentId)
+              return no ? { ...o, studentNo: no } : o
+            }
+            return o
+          })
+
+        // Paylaşıma aç — mevcut layout'un zenginleştirilmiş snapshot'ını kaydet
+        await sharePlan({
+          courseId,
+          dersAdi: course.dersAdi,
+          sinifAdi: course.sinifAdi,
+          layoutMode,
+          classroomLayout: enrichLayout(layouts.classroom),
+          labLayout: enrichLayout(layouts.lab),
+          studentCount: students.length,
+        })
+        toast({ title: 'Paylaşıma Açıldı', description: 'Oturma planınız diğer kullanıcılar tarafından görülebilir.' })
+      } else {
+        // Paylaşımı kapat
+        await unsharePlan(courseId)
+        toast({ title: 'Paylaşım Kapatıldı', description: 'Oturma planınız artık gizli.' })
+      }
+      await updateCourse(courseId, { isShared: newShared })
+    } catch (err) {
+      console.error('Share toggle error:', err)
+      toast({ title: 'Hata', description: 'Paylaşım durumu değiştirilemedi.', variant: 'destructive' })
+    }
+  }
+
+  /** Paylaşılan düzeni yükle — studentNo → localStudentId eşleştirmesi + Firestore pcNo güncellemesi */
+  const handleLoadSharedPlan = async (plan: SharedSeatingPlan) => {
+    pushHistory()
+
+    // ADIM 1: mevcut kursun öğrencileri için iki harita
+    const localIdByNo = new Map<string, string>()   // studentNo → localStudentId
+    const localIdByPcNo = new Map<string, string>() // pcNo → localStudentId (fallback)
+    students.forEach(s => {
+      if (s.no) localIdByNo.set(s.no, s.id)
+      if (s.pcNo) localIdByPcNo.set(s.pcNo, s.id)
+    })
+
+    // ADIM 2: paylaşılan planın pc_label'larından originalStudentId→pcNo haritası
+    const pcNoByOriginalStudentId = new Map<string, string>()
+    const collectLabels = (objs: SeatObject[]) => {
+      objs.forEach(o => {
+        if (o.type === 'pc_label' && o.linkedStudentId && o.pcNo) {
+          pcNoByOriginalStudentId.set(o.linkedStudentId, o.pcNo)
+        }
+      })
+    }
+    collectLabels(plan.classroomLayout)
+    collectLabels(plan.labLayout)
+
+    // ADIM 3: originalStudentId → localStudentId çözümle
+    // Önce studentNo (güvenilir), sonra pcNo köprüsü (fallback)
+    const remapId = (originalId: string, studentNo?: string): string | undefined => {
+      // 1. studentNo üzerinden doğrudan eşleştir
+      if (studentNo) {
+        const localId = localIdByNo.get(studentNo)
+        if (localId) return localId
+      }
+      // 2. Fallback: paylaşılan planın pc_label'ından pcNo al, mevcut öğrencide bul
+      const pcNo = pcNoByOriginalStudentId.get(originalId)
+      return pcNo ? localIdByPcNo.get(pcNo) : undefined
+    }
+
+    // ADIM 4: layout nesnelerini yeniden haritala
+    const remapLayout = (objs: SeatObject[]): SeatObject[] =>
+      objs.map(o => {
+        if (o.type === 'student' && o.studentId) {
+          const localId = remapId(o.studentId, o.studentNo)
+          // studentNo artık local'de anlamsız, temizle
+          return localId
+            ? { ...o, studentId: localId, studentNo: undefined }
+            : { ...o, studentNo: undefined }
+        }
+        if (o.type === 'pc_label' && o.linkedStudentId) {
+          const linkedSeat = objs.find(s => s.type === 'student' && s.studentId === o.linkedStudentId)
+          if (linkedSeat) {
+            const localId = remapId(o.linkedStudentId, linkedSeat.studentNo)
+            return localId ? { ...o, linkedStudentId: localId } : o
+          }
+        }
+        return o
+      })
+
+    const remappedClassroom = remapLayout(plan.classroomLayout)
+    const remappedLab = remapLayout(plan.labLayout)
+    const targetLayout = plan.layoutMode === 'lab' ? remappedLab : remappedClassroom
+
+    // ADIM 5: Firestore'da her öğrencinin pcNo'sunu batch ile güncelle
+    try {
+      const { writeBatch: makeBatch, doc: fbDoc } = await import('firebase/firestore')
+      const { db: firestoreDb } = await import('@/lib/firebase')
+      const batch = makeBatch(firestoreDb)
+      let hasWrites = false
+
+      pcNoByOriginalStudentId.forEach((pcNo, originalId) => {
+        // Önce o orijinal ID'nin seat'inden studentNo'yu bul
+        const allShared = [...plan.classroomLayout, ...plan.labLayout]
+        const seat = allShared.find(o => o.type === 'student' && o.studentId === originalId)
+        const localId = remapId(originalId, seat?.studentNo)
+        if (localId) {
+          batch.update(fbDoc(firestoreDb, 'courses', courseId!, 'students', localId), { pcNo })
+          hasWrites = true
+        }
+      })
+
+      if (hasWrites) await batch.commit()
+    } catch (err) {
+      console.error('pcNo batch update error:', err)
+    }
+
+    // ADIM 6: state güncelle
+    const newLayouts = { classroom: remappedClassroom, lab: remappedLab }
+    setLayouts(newLayouts)
+    setLayoutMode(plan.layoutMode)
+    setObjects(targetLayout)
+    persistPlan(targetLayout, plan.layoutMode)
+    setLayoutVersion(v => v + 1)
+    toast({ title: 'Düzen Yüklendi', description: `${plan.teacherName} tarafından paylaşılan düzen başarıyla uygulandı.` })
+  }
+
 
   const clearAll = () => {
     if (confirm('Tüm nesneleri (etiketler dahil) temizlemek istiyor musunuz?')) {
@@ -1109,6 +1252,27 @@ export function SeatingPlanPage() {
                   <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Hepsini Sil</span>
                 </Button>
                 <div className="w-full h-px bg-slate-100 my-1" />
+                {/* Paylaşım Toggle */}
+                <button
+                  onClick={handleShareToggle}
+                  className="h-10 px-3 w-full flex items-center justify-between rounded-xl hover:bg-violet-50 transition-colors group"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <Globe className={`w-4 h-4 transition-colors ${course?.isShared ? 'text-violet-500' : 'text-slate-400'}`} />
+                    <span className="text-[11px] font-bold tracking-wide uppercase text-slate-700">Paylaşım</span>
+                  </div>
+                  <div className={`w-9 h-5 rounded-full relative transition-colors duration-300 ${course?.isShared ? 'bg-violet-500' : 'bg-slate-300'}`}>
+                    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-300 ${course?.isShared ? 'left-[18px]' : 'left-0.5'}`} />
+                  </div>
+                </button>
+                {/* Paylaşılandan İndir */}
+                 <Button variant="ghost" onClick={() => { setIsToolbarOpen(false); setIsSharedLayoutsOpen(true); }} className="h-12 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-violet-50 hover:text-violet-700 transition-colors">
+                   <Download className="w-4 h-4 text-violet-400" />
+                   <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px] leading-tight text-left">
+                     Paylaşılandan<br/>İndir
+                   </span>
+                 </Button>
+                <div className="w-full h-px bg-slate-100 my-1" />
                 <Button variant="default" onClick={handleSave} disabled={saving} className="h-11 px-3 mt-1 flex items-center justify-start gap-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white shadow-md transition-all">
                   {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                   <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Kaydet</span>
@@ -1322,6 +1486,27 @@ export function SeatingPlanPage() {
                               <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Hepsini Sil</span>
                             </Button>
                             <div className="w-full h-px bg-slate-100 my-0.5" />
+                            {/* Paylaşım Toggle */}
+                            <button
+                              onClick={handleShareToggle}
+                              className="h-9 px-3 w-full flex items-center justify-between rounded-xl hover:bg-violet-50 transition-colors group"
+                            >
+                              <div className="flex items-center gap-2.5">
+                                <Globe className={`w-4 h-4 transition-colors ${course?.isShared ? 'text-violet-500' : 'text-slate-400'}`} />
+                                <span className="text-[11px] font-bold tracking-wide uppercase text-slate-700">Paylaşım</span>
+                              </div>
+                              <div className={`w-9 h-5 rounded-full relative transition-colors duration-300 ${course?.isShared ? 'bg-violet-500' : 'bg-slate-300'}`}>
+                                <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow-sm transition-all duration-300 ${course?.isShared ? 'left-[18px]' : 'left-0.5'}`} />
+                              </div>
+                            </button>
+                            {/* Paylaşılandan İndir */}
+                             <Button variant="ghost" onClick={() => { setIsToolbarOpen(false); setIsSharedLayoutsOpen(true); }} className="h-11 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-violet-50 hover:text-violet-700 transition-colors">
+                               <Download className="w-4 h-4 text-violet-400" />
+                               <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px] leading-tight text-left">
+                                 Paylaşılandan<br/>İndir
+                               </span>
+                             </Button>
+                            <div className="w-full h-px bg-slate-100 my-0.5" />
                             <Button variant="default" onClick={handleSave} disabled={saving} className="h-9 px-3 mt-1 flex items-center justify-start gap-2.5 rounded-xl bg-primary hover:bg-primary/90 text-white shadow-md transition-all">
                               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                               <span className="text-[11px] font-bold tracking-wide uppercase mt-[1px]">Kaydet</span>
@@ -1476,6 +1661,16 @@ export function SeatingPlanPage() {
         onChange={(val) => {
           if (numpadOpenFor) handleScoreChange(numpadOpenFor, val)
         }}
+      />
+
+      {/* Paylaşılmış Düzenler Dialogu */}
+      <SharedLayoutsDialog
+        open={isSharedLayoutsOpen}
+        onClose={() => setIsSharedLayoutsOpen(false)}
+        sharedPlans={sharedPlans}
+        loading={sharedPlansLoading}
+        currentCourseId={courseId!}
+        onLoadPlan={handleLoadSharedPlan}
       />
 
       {/* Kaydedilmemiş Değişiklikler Modalı */}

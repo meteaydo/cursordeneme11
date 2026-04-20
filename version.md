@@ -30,8 +30,8 @@ v1.19 20.04.2026 - Öğrenci kartlarına dikey öğrenci numarası eklendi. Numa
 
 v1.19.1 20.04.2026 - PC numarası çakışması (takas/devir) durumunda oluşan senkronizasyon hatası düzeltildi. Bir öğrenciye başka bir öğrencinin PC numarası atandığında, eski sahibinin verisi artık otomatik olarak temizleniyor. Aynı zamanda oturma planı sayfasındaki PC no etiketlerine de boş (temizlenmiş) durum anında yansıyor.
 
-v1.20 20.04.2026 - Oturma planı sayfasında, öğrenci kartına tıklanarak açılan "Büyük Kart" üzerine "PC No" yönetimi paneli eklendi.
+v1.20 20.04.2026 - Oturma planı sayfasında, öğrenci kartına tıklanarak açılan "Büyük Kart" üzerinde "PC No" yönetimi paneli eklendi.
 
 v1.21 20.04.2026 - Oturma planı sayfasında "Boş Sıra"lar için tam PC yönetimi desteği getirildi. Boş sıralar artık kendi PC etiketleriyle (pc_label) eşleşebiliyor, tıklandığında büyüyerek numara değişikliğine izin veriyor ve beraberinde sürükleniyor. Yeni boş sıra eklendiğinde etiketiyle birlikte oluşması sağlandı ve tek tıkla silinmeleri için sağ üst köşelerine çöp kutusu ikonu eklendi.
 
-v1.21.1 20.04.2026
+v1.22 20.04.2026 - Bulut tabanlı "Oturma Planı Paylaşım Sistemi" hayata geçirildi. Farklı öğretmenlerin paylaştığı planları "Öğrenci No" bazlı akıllı eşleştirme ile indirme ve kendi kursuna uygulama özelliği eklendi. Ayarlar menüsü Paylaşım Toggle ve "Paylaşılandan İndir" (ikili satır tasarımı ve Download ikonuyla) butonlarıyla güncellendi. Kullanılmayan değişkenler ve build hataları temizlendi.

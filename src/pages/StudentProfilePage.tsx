@@ -56,14 +56,11 @@ export default function StudentProfilePage() {
 
   // Behavior states
   const [behaviorNote, setBehaviorNote] = useState('')
-  const [behaviorPhotoBlobs, setBehaviorPhotoBlobs] = useState<(Blob | File)[]>([])
-  const [behaviorPhotoUrls, setBehaviorPhotoUrls] = useState<string[]>([])
   const [behaviorSaving, setBehaviorSaving] = useState(false)
-  const [zoomedBehaviorPhotoIndex, setZoomedBehaviorPhotoIndex] = useState<number | null>(null)
   const [zoomedListPhotoId, setZoomedListPhotoId] = useState<string | null>(null)
   const [isBehaviorFormOpen, setIsBehaviorFormOpen] = useState(false)
   const [behaviorToDelete, setBehaviorToDelete] = useState<any | null>(null)
-  const [editingBehaviorLog, setEditingBehaviorLog] = useState<any | null>(null)
+  const [photoTargetLog, setPhotoTargetLog] = useState<any | null>(null)
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const behaviorDropdownRef = useRef<HTMLDivElement>(null)
 
@@ -270,41 +267,40 @@ export default function StudentProfilePage() {
       if (cameraMode === 'profile') uploadProfilePhoto(blob)
       else if (cameraMode === 'notes') uploadNotePhoto(blob)
       else if (cameraMode === 'behavior') {
-        const url = URL.createObjectURL(blob)
-        setBehaviorPhotoUrls(prev => [...prev, url])
-        setBehaviorPhotoBlobs(prev => [...prev, blob])
-        closeCamera()
+        if (photoTargetLog) {
+          uploadBehaviorPhotoForExistingLog(blob, photoTargetLog)
+        }
       }
     }, 'image/jpeg', 0.85)
   }
 
-  const handleBehaviorFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = Array.from(e.target.files || [])
-    if (!files.length) return
-    const newUrls = files.map(f => URL.createObjectURL(f))
-    setBehaviorPhotoUrls(prev => [...prev, ...newUrls])
-    setBehaviorPhotoBlobs(prev => [...prev, ...files])
-  }
+  const uploadBehaviorPhotoForExistingLog = async (blob: Blob, log: any) => {
+    setBehaviorSaving(true)
+    try {
+      const options = { maxSizeMB: 0.5, maxWidthOrHeight: 1280, useWebWorker: true }
+      const fileToCompress = new File([blob], 'image.jpg', { type: blob.type || 'image/jpeg' })
+      const compressedFile = await imageCompression(fileToCompress, options)
+      const key = `students/${sId}/behavior/${Date.now()}.jpg`
+      const url = await uploadToR2(compressedFile, key)
 
-  const removeBehaviorPhoto = (idx: number) => {
-    setBehaviorPhotoUrls(prev => prev.filter((_, i) => i !== idx))
-    setBehaviorPhotoBlobs(prev => prev.filter((_, i) => i !== idx))
-  }
-
-  const handleEditBehaviorClick = (log: any) => {
-    setEditingBehaviorLog(log)
-    setBehaviorNote(log.note)
-    setBehaviorPhotoUrls(log.photoUrls || (log.photoUrl ? [log.photoUrl] : []))
-    setBehaviorPhotoBlobs([])
-    setIsBehaviorFormOpen(true)
+      const updatedLog = {
+        ...log,
+        photoUrls: [...(log.photoUrls || (log.photoUrl ? [log.photoUrl] : [])), url],
+        photoUrl: url // update primary photo too
+      }
+      await updateBehaviorLog(sId, log, updatedLog)
+      toast({ title: 'Başarılı', description: 'Fotoğraf eklendi.', variant: 'blue' })
+      closeCamera()
+      setPhotoTargetLog(null)
+    } catch {
+      toast({ title: 'Hata', description: 'Fotoğraf yüklenirken bir hata oluştu.', variant: 'destructive' })
+    } finally {
+      setBehaviorSaving(false)
+    }
   }
 
   const resetBehaviorForm = () => {
     setBehaviorNote('')
-    setBehaviorPhotoBlobs([])
-    behaviorPhotoUrls.filter(u => u.startsWith('blob:')).forEach(URL.revokeObjectURL)
-    setBehaviorPhotoUrls([])
-    setEditingBehaviorLog(null)
     setIsBehaviorFormOpen(false)
   }
 
@@ -313,7 +309,6 @@ export default function StudentProfilePage() {
     if (!noteToSave.trim()) return // boşsa kaydetme
 
     setBehaviorSaving(true)
-    const finalPhotoUrls: string[] = []
     
     // Type belirlenmesi: 
     // 1. forcedType (butonla basıldıysa)
@@ -328,37 +323,7 @@ export default function StudentProfilePage() {
     }
 
     try {
-      const existingUrls = behaviorPhotoUrls.filter(url => !url.startsWith('blob:'))
-      finalPhotoUrls.push(...existingUrls)
-
-      if (behaviorPhotoBlobs.length > 0) {
-        const options = { maxSizeMB: 0.5, maxWidthOrHeight: 1280, useWebWorker: true }
-        for (let i = 0; i < behaviorPhotoBlobs.length; i++) {
-          const blob = behaviorPhotoBlobs[i]
-          const fileToCompress = blob instanceof File
-            ? blob
-            : new File([blob], 'image.jpg', { type: blob.type || 'image/jpeg' })
-
-          const compressedFile = await imageCompression(fileToCompress, options)
-          const key = `students/${sId}/behavior/${Date.now()}_${i}.jpg`
-
-          const url = await uploadToR2(compressedFile, key)
-          finalPhotoUrls.push(url)
-        }
-      }
-
-      if (editingBehaviorLog) {
-        const updatedLog = {
-          ...editingBehaviorLog,
-          type: determinedType,
-          note: noteToSave,
-          photoUrls: finalPhotoUrls,
-          photoUrl: finalPhotoUrls[0] || undefined
-        }
-        await updateBehaviorLog(sId, editingBehaviorLog, updatedLog)
-      } else {
-        await addBehaviorStar(sId, determinedType, noteToSave, finalPhotoUrls)
-      }
+      await addBehaviorStar(sId, determinedType, noteToSave, [])
 
       resetBehaviorForm()
       toast({ title: 'Başarılı', description: 'Davranış değerlendirmesi kaydedildi.', variant: 'blue' })
@@ -524,16 +489,22 @@ export default function StudentProfilePage() {
         <div className="flex flex-col items-center gap-1.5">
           <div className="relative mb-2">
             <div
-              className={`w-24 h-24 flex items-center justify-center border-2 border-primary/20 transition-all duration-300 origin-top ${isProfileZoomed ? 'scale-[3] z-50 shadow-xl relative rounded-md overflow-hidden bg-background cursor-zoom-out' : 'rounded-full overflow-hidden bg-primary/10 cursor-zoom-in'}`}
-              onClick={() => setIsProfileZoomed(!isProfileZoomed)}
-              title={isProfileZoomed ? "Küçült" : "Büyüt"}
+              className="w-24 h-24 flex items-center justify-center border-2 border-primary/20 transition-all duration-300 origin-top rounded-full overflow-hidden bg-primary/10 cursor-zoom-in"
+              onClick={() => form.foto && setIsProfileZoomed(true)}
+              title="Büyüt"
             >
               {form.foto ? (
                 <OfflineImage src={form.foto} alt={form.adSoyad} className="w-full h-full object-cover" />
               ) : (
-                <User className={`text-primary/50 ${isProfileZoomed ? 'h-6 w-6' : 'h-10 w-10'}`} />
+                <User className="text-primary/50 h-10 w-10" />
               )}
             </div>
+            <Dialog open={isProfileZoomed} onOpenChange={setIsProfileZoomed}>
+              <DialogContent className="max-w-[100vw] w-screen h-[100dvh] p-0 border-none bg-black/95 shadow-none flex items-center justify-center [&>button]:text-white [&>button]:bg-black/50" aria-describedby={undefined}>
+                <DialogTitle className="hidden">Profil Fotoğrafı</DialogTitle>
+                <OfflineImage src={form.foto || ''} alt={form.adSoyad} className="w-full h-full object-contain" />
+              </DialogContent>
+            </Dialog>
             <div className={`flex gap-1.5 absolute -bottom-3 left-1/2 -translate-x-1/2 transition-opacity ${isProfileZoomed ? 'opacity-0 pointer-events-none' : 'opacity-100'}`}>
               <button
                 onClick={() => openCamera('profile')}
@@ -624,11 +595,14 @@ export default function StudentProfilePage() {
           </div>
         </div>
 
-        {/* Kamera önizleme */}
-        {cameraOpen && (
-          <Card>
-            <CardContent className="p-3 space-y-3">
-              <video ref={videoRef} autoPlay playsInline className="w-full rounded-lg bg-black aspect-[4/3] object-cover" />
+        {/* Kamera önizleme Modalı */}
+        <Dialog open={cameraOpen} onOpenChange={(open) => !open && closeCamera()}>
+          <DialogContent className="max-w-[90vw] sm:max-w-md rounded-lg p-4" aria-describedby={undefined}>
+            <DialogHeader>
+              <DialogTitle className="text-left">Fotoğraf Çek</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-3">
+              <video ref={videoRef} autoPlay playsInline className="w-full rounded-lg bg-black aspect-[4/3] object-cover shadow-sm" />
               <canvas ref={canvasRef} className="hidden" />
               <div className="flex gap-2">
                 <Button variant="outline" className="flex-1" onClick={closeCamera}>İptal</Button>
@@ -637,9 +611,9 @@ export default function StudentProfilePage() {
                   Çek
                 </Button>
               </div>
-            </CardContent>
-          </Card>
-        )}
+            </div>
+          </DialogContent>
+        </Dialog>
 
         {/* Form - Temel Bilgiler */}
         <Card className="border-blue-400/80 border-2 bg-blue-50/10 shadow-md">
@@ -731,56 +705,8 @@ export default function StudentProfilePage() {
               </Button>
             </div>
 
-            {/* List */}
-            {student.behaviorLogs && student.behaviorLogs.length > 0 && (
-              <div className="space-y-2 pr-1">
-                {[...student.behaviorLogs].reverse().map((log) => (
-                  <div key={log.id} className="flex items-start justify-between gap-2 p-2 rounded-md bg-background border border-border/50 text-sm shadow-sm">
-                    <div className="flex items-start gap-2 flex-1">
-                      {log.type === 'yellow' ? (
-                        <Star className="w-4 h-4 mt-0.5 shrink-0 fill-yellow-400 text-yellow-500" />
-                      ) : (
-                        <StarOff className="w-4 h-4 mt-0.5 shrink-0 text-purple-500" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[10px] text-muted-foreground">{format(new Date(log.date), 'dd MMM HH:mm', { locale: tr })}</p>
-                        {log.note && <p className="font-medium mt-0.5 break-words text-xs">{log.note}</p>}
-
-                        {/* Show multiple photos if they exist, or single photoUrl fallback */}
-                        {(log.photoUrls?.length || log.photoUrl) ? (
-                          <div className="flex flex-wrap gap-1 mt-1.5">
-                            {(log.photoUrls || (log.photoUrl ? [log.photoUrl] : [])).map((url, idx) => {
-                              const uniqueId = `${log.id}-${idx}`
-                              const isZoomed = zoomedListPhotoId === uniqueId
-                              return (
-                                <div
-                                  key={uniqueId}
-                                  className={`w-8 h-8 shrink-0 rounded border border-border transition-all duration-300 origin-top-left overflow-hidden ${isZoomed ? 'scale-[4] z-50 shadow-xl relative cursor-zoom-out' : 'cursor-zoom-in'}`}
-                                  onClick={() => setZoomedListPhotoId(isZoomed ? null : uniqueId)}
-                                >
-                                  <OfflineImage src={url} alt="Kanıt" className="w-full h-full object-cover" />
-                                </div>
-                              )
-                            })}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                    <div className="flex flex-col gap-1 shrink-0">
-                      <button onClick={() => handleEditBehaviorClick(log)} className="text-muted-foreground hover:bg-accent/50 p-1 rounded transition-colors">
-                        <Pencil className="h-3.5 w-3.5" />
-                      </button>
-                      <button onClick={() => setBehaviorToDelete(log)} className="text-destructive hover:bg-destructive/10 p-1 rounded transition-colors">
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
             {isBehaviorFormOpen && (
-              <div className="bg-background p-3 rounded-lg border border-border/60 shadow-sm space-y-2 animate-in fade-in zoom-in-95 duration-200">
+              <div className="bg-background p-3 rounded-lg border border-border/60 shadow-sm space-y-2 animate-in fade-in zoom-in-95 duration-200 mb-3">
                 <div className="flex items-start gap-2">
                   <div className="flex-1 space-y-2">
                     <div className="relative" ref={behaviorDropdownRef}>
@@ -855,52 +781,70 @@ export default function StudentProfilePage() {
                         </Button>
                       </div>
                     )}
-
-                    <p className="text-xs text-muted-foreground">
-                      Yeşil: iyi davranış, Pembe: kötü davranış. Seçim yapıldığında otomatik kaydedilir.
-                    </p>
-                  </div>
-                  <div className="flex flex-col gap-1 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => openCamera('behavior')}
-                      className="h-7 w-7 inline-flex items-center justify-center rounded border border-input bg-background hover:bg-accent transition-colors"
-                      title="Kamera ile kanıt ekle"
-                    >
-                      <Camera className="h-3.5 w-3.5" />
-                    </button>
-                    <label className="h-7 w-7 inline-flex items-center justify-center rounded border border-input bg-background hover:bg-accent transition-colors cursor-pointer" title="Dosyadan kanıt ekle">
-                      <Upload className="h-3.5 w-3.5" />
-                      <input type="file" accept="image/*" multiple className="hidden" onChange={handleBehaviorFileUpload} />
-                    </label>
                   </div>
                 </div>
+              </div>
+            )}
 
-                {behaviorPhotoUrls.length > 0 && (
-                  <div className="flex flex-wrap gap-2 mt-1">
-                    {behaviorPhotoUrls.map((url, idx) => (
-                      <div key={idx} className="relative group w-12 h-12">
-                        <div
-                          className={`w-12 h-12 border border-border overflow-hidden transition-all duration-300 origin-top-left ${zoomedBehaviorPhotoIndex === idx ? 'scale-[4] z-50 shadow-xl relative rounded-md bg-background cursor-zoom-out' : 'rounded-lg cursor-zoom-in'}`}
-                          onClick={() => setZoomedBehaviorPhotoIndex(zoomedBehaviorPhotoIndex === idx ? null : idx)}
-                        >
-                          <img src={url} alt="Kanıt" className="w-full h-full object-cover" />
-                        </div>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            removeBehaviorPhoto(idx)
-                            if (zoomedBehaviorPhotoIndex === idx) setZoomedBehaviorPhotoIndex(null)
-                          }}
-                          className={`absolute -top-1.5 -right-1.5 w-4 h-4 bg-destructive text-white rounded-full flex items-center justify-center transition-opacity ${zoomedBehaviorPhotoIndex === idx ? 'opacity-0 pointer-events-none' : 'opacity-0 group-hover:opacity-100'}`}
-                        >
-                          <X className="h-2.5 w-2.5" />
-                        </button>
+            {/* List */}
+            {student.behaviorLogs && student.behaviorLogs.length > 0 && (
+              <div className="space-y-2 pr-1">
+                {[...student.behaviorLogs].reverse().map((log) => (
+                  <div key={log.id} className="flex items-start justify-between gap-2 p-2 rounded-md bg-background border border-border/50 text-sm shadow-sm">
+                    <div className="flex items-start gap-2 flex-1">
+                      {log.type === 'yellow' ? (
+                        <Star className="w-4 h-4 mt-0.5 shrink-0 fill-yellow-400 text-yellow-500" />
+                      ) : (
+                        <StarOff className="w-4 h-4 mt-0.5 shrink-0 text-purple-500" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[10px] text-muted-foreground">{format(new Date(log.date), 'dd MMM HH:mm', { locale: tr })}</p>
+                        {log.note && <p className="font-medium mt-0.5 break-words text-xs">{log.note}</p>}
+
+                        {/* Show multiple photos if they exist, or single photoUrl fallback */}
+                        {(log.photoUrls?.length || log.photoUrl) ? (
+                          <div className="flex flex-wrap gap-1 mt-1.5">
+                            {(log.photoUrls || (log.photoUrl ? [log.photoUrl] : [])).map((url, idx) => {
+                              const uniqueId = `${log.id}-${idx}`
+                              const isZoomed = zoomedListPhotoId === uniqueId
+                              return (
+                                <div key={uniqueId}>
+                                  <div
+                                    className="w-8 h-8 shrink-0 rounded border border-border overflow-hidden cursor-zoom-in"
+                                    onClick={() => setZoomedListPhotoId(uniqueId)}
+                                  >
+                                    <OfflineImage src={url} alt="Kanıt" className="w-full h-full object-cover" />
+                                  </div>
+                                  <Dialog open={isZoomed} onOpenChange={(open) => !open && setZoomedListPhotoId(null)}>
+                                    <DialogContent className="max-w-[100vw] w-screen h-[100dvh] p-0 border-none bg-black/95 shadow-none flex items-center justify-center [&>button]:text-white [&>button]:bg-black/50" aria-describedby={undefined}>
+                                      <DialogTitle className="hidden">Davranış Fotoğrafı</DialogTitle>
+                                      <OfflineImage src={url} alt="Kanıt" className="w-full h-full object-contain" />
+                                    </DialogContent>
+                                  </Dialog>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        ) : null}
                       </div>
-                    ))}
+                    </div>
+                    <div className="flex flex-col gap-1 shrink-0">
+                      <button 
+                        onClick={() => {
+                          setPhotoTargetLog(log)
+                          openCamera('behavior')
+                        }} 
+                        className="text-muted-foreground hover:bg-accent/50 p-1 rounded transition-colors"
+                        title="Fotoğraf Ekle"
+                      >
+                        <Camera className="h-3.5 w-3.5" />
+                      </button>
+                      <button onClick={() => setBehaviorToDelete(log)} className="text-destructive hover:bg-destructive/10 p-1 rounded transition-colors">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
                   </div>
-                )}
+                ))}
               </div>
             )}
           </CardContent>
@@ -975,9 +919,9 @@ export default function StudentProfilePage() {
                     return (
                       <div key={i} className="relative group">
                         <div
-                          className={`w-16 h-16 border border-border overflow-hidden transition-all duration-300 origin-top-left ${isZoomed ? 'scale-[4] z-50 shadow-xl relative rounded-md bg-background cursor-zoom-out' : 'rounded-lg cursor-zoom-in'}`}
-                          onClick={() => setZoomedNotePhotoIndex(isZoomed ? null : i)}
-                          title={isZoomed ? "Küçült" : "Büyüt"}
+                          className="w-16 h-16 border border-border rounded-lg overflow-hidden cursor-zoom-in"
+                          onClick={() => setZoomedNotePhotoIndex(i)}
+                          title="Büyüt"
                         >
                           <OfflineImage
                             src={url}
@@ -985,13 +929,19 @@ export default function StudentProfilePage() {
                             className="w-full h-full object-cover"
                           />
                         </div>
+                        <Dialog open={isZoomed} onOpenChange={(open) => !open && setZoomedNotePhotoIndex(null)}>
+                          <DialogContent className="max-w-[100vw] w-screen h-[100dvh] p-0 border-none bg-black/95 shadow-none flex items-center justify-center [&>button]:text-white [&>button]:bg-black/50" aria-describedby={undefined}>
+                            <DialogTitle className="hidden">Not Fotoğrafı</DialogTitle>
+                            <OfflineImage src={url} alt={`Not fotoğrafı ${i + 1}`} className="w-full h-full object-contain" />
+                          </DialogContent>
+                        </Dialog>
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation()
                             setNotePhotoToDeleteIdx(i)
                           }}
-                          className={`absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive text-white rounded-full flex items-center justify-center transition-opacity ${isZoomed ? 'opacity-0 pointer-events-none' : 'opacity-0 group-hover:opacity-100'}`}
+                          className={`absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive text-white rounded-full flex items-center justify-center transition-opacity opacity-0 group-hover:opacity-100`}
                         >
                           <X className="h-3 w-3" />
                         </button>
