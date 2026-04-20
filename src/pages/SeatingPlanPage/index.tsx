@@ -29,7 +29,7 @@ import { DraggableItem } from './components/DraggableItem'
 import { SmartNumpad } from '@/components/ui/smart-numpad'
 import { Loader2, Save, RotateCcw, Plus, Undo2, Redo2, LayoutPanelTop, Trash2, ZoomIn, ZoomOut, Settings, FileSpreadsheet, Printer } from 'lucide-react'
 import { generateSeatingPlanExcel } from '@/services/excelSeatingService'
-import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+
 
 
 const getObjectSize = (type: string) => {
@@ -131,18 +131,9 @@ export function SeatingPlanPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [history, setHistory] = useState<SeatObject[][]>([])
   const [redoHistory, setRedoHistory] = useState<SeatObject[][]>([])
-  const [showAssignmentConfirm, setShowAssignmentConfirm] = useState(false)
-  const [idsForAssignment, setIdsForAssignment] = useState<string[]>([])
   const [isShareOpen, setIsShareOpen] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false)
-
-  const [pcSwapConfirm, setPcSwapConfirm] = useState<{
-    pcNo: string,
-    oldOwnerName: string,
-    newOwnerId: string,
-    pendingObjectsNext: SeatObject[]
-  } | null>(null)
 
   // Selection DB ID Calculation
   const selectedStudentDBIds = new Set<string>();
@@ -157,12 +148,8 @@ export function SeatingPlanPage() {
   const activeApplicationId = navState?.applicationId ?? null
   const activeApplicationAd = navState?.applicationAd ?? null
 
-  // PC label snap state — useRef ile senkron tutuluyor (render tetiklemez)
-  // Render için ayrıca pcSnapTargetState kullanılır (sadece görsel güncelleme)
+  // PC etiketlerinin öğrenci kartının hangi kenarına snap edileceğini belirler
   type PcSnapSide = 'top' | 'right' | 'bottom' | 'left'
-  type PcSnapTarget = { studentObjId: string; side: PcSnapSide } | null
-  const pcSnapTargetRef = useRef<PcSnapTarget>(null)
-  const [pcSnapTarget, setPcSnapTarget] = useState<PcSnapTarget>(null)
   
   // Layout states
   const [layoutMode, setLayoutMode] = useState<'classroom' | 'lab'>('lab')
@@ -861,129 +848,10 @@ export function SeatingPlanPage() {
 
   const handleDragStart = (e: DragStartEvent) => {
     setActiveId(e.active.id as string)
-    // pc_label sürüklenmeye başlarsa snap target sıfırla
-    const obj = objects.find(o => `canvas_${o.id}` === e.active.id);
-    if (obj?.type === 'pc_label') {
-      pcSnapTargetRef.current = null;
-      setPcSnapTarget(null);
-    }
   }
 
-  // PC etiketleri ve öğrenci kartları arasındaki mıknatıs yarıçapı (px)
-  const PC_HOVER_RADIUS = 80;
-
-  // PC label için en yakın öğrenci kartını bul
-  const computePcSnapTarget = (
-    labelX: number, labelY: number,
-    currentObjects: SeatObject[]
-  ): PcSnapTarget => {
-    const labelCx = labelX + 30;  // 60 / 2
-    const labelCy = labelY + 17;  // 34 / 2
-    let closest: { objId: string; dist: number; side: PcSnapSide } | null = null;
-
-    for (const obj of currentObjects) {
-      if (obj.type !== 'student') continue;
-      const cx = obj.x + 35;
-      const cy = obj.y + 35;
-      const dist = Math.sqrt((labelCx - cx) ** 2 + (labelCy - cy) ** 2);
-      if (dist > PC_HOVER_RADIUS) continue;
-      if (closest && dist >= closest.dist) continue;
-
-      const dx = labelCx - cx;
-      const dy = labelCy - cy;
-      let side: PcSnapSide;
-      if (Math.abs(dx) > Math.abs(dy)) {
-        side = dx > 0 ? 'right' : 'left';
-      } else {
-        side = dy > 0 ? 'bottom' : 'top';
-      }
-      closest = { objId: obj.id, dist, side };
-    }
-    if (!closest) return null;
-    return { studentObjId: closest.objId, side: closest.side };
-  };
-
-  // Öğrenci sürüklenirken bir PC etiketine yaklaşıp yaklaşmadığını bul
-  const computeStudentToLabelSnapTarget = (
-    studentX: number, studentY: number,
-    currentObjects: SeatObject[]
-  ) => {
-    const studentCx = studentX + 35;
-    const studentCy = studentY + 35;
-    let closest: { labelId: string; side: PcSnapSide; dist: number } | null = null;
-
-    for (const obj of currentObjects) {
-      if (obj.type !== 'pc_label') continue;
-      
-      const labelCx = obj.x + 30;  // 60 / 2
-      const labelCy = obj.y + 17;  // 34 / 2
-      const dist = Math.sqrt((studentCx - labelCx) ** 2 + (studentCy - labelCy) ** 2);
-      
-      if (dist > PC_HOVER_RADIUS) continue;
-      if (closest && dist >= closest.dist) continue;
-
-      const dx = labelCx - studentCx;
-      const dy = labelCy - studentCy;
-      let side: PcSnapSide;
-      if (Math.abs(dx) > Math.abs(dy)) {
-        // labelCx < studentCx (dx negatif) ise etiket soldadır -> sola yapıştır
-        side = dx > 0 ? 'right' : 'left';
-      } else {
-        // labelCy < studentCy (dy negatif) ise etiket üsttedir -> üste yapıştır
-        side = dy > 0 ? 'bottom' : 'top'; 
-      }
-      closest = { labelId: obj.id, side, dist };
-    }
-    return closest;
-  };
-
   const handleDragMove = (e: DragMoveEvent) => {
-    const activeObj = objects.find(o => `canvas_${o.id}` === e.active.id);
-    const isGroupDrag = isSelectionMode && selectedIds.includes((e.active.id as string).replace('canvas_', ''));
-
-    if (activeObj?.type === 'pc_label') {
-      // Çoklu taşımada pc_label snap olayını devre dışı bırak
-      if (isGroupDrag && pcSnapTarget) {
-        pcSnapTargetRef.current = null;
-        setPcSnapTarget(null);
-        return;
-      }
-
-      // pc_label sürükleniyor: öğrenci kartına snap
-      const labelX = activeObj.x + e.delta.x;
-      const labelY = activeObj.y + e.delta.y;
-      const target = computePcSnapTarget(labelX, labelY, objects);
-      if (JSON.stringify(target) !== JSON.stringify(pcSnapTargetRef.current)) {
-        pcSnapTargetRef.current = target;
-        setPcSnapTarget(target);
-      }
-      return;
-    }
-
-    if (activeObj?.type === 'student') {
-      // Çoklu taşımada öğrenci -> pc_label snap olayını devre dışı bırak
-      if (isGroupDrag && pcSnapTarget) {
-        pcSnapTargetRef.current = null;
-        setPcSnapTarget(null);
-      }
-
-      if (!isGroupDrag) {
-        // öğrenci sürükleniyor: pc etiketine snap
-        const studentX = activeObj.x + e.delta.x;
-        const studentY = activeObj.y + e.delta.y;
-        const target = computeStudentToLabelSnapTarget(studentX, studentY, objects);
-        const simplifiedTarget = target ? { studentObjId: target.labelId, side: target.side } : null;
-        if (JSON.stringify(simplifiedTarget) !== JSON.stringify(pcSnapTargetRef.current)) {
-          pcSnapTargetRef.current = simplifiedTarget;
-          setPcSnapTarget(simplifiedTarget);
-        }
-      }
-    }
-
-    const unscaledX = e.delta.x;
-    const unscaledY = e.delta.y;
-
-    const { guides: newGuides } = getSnapPosition(e.active.id as string, unscaledX, unscaledY, objects);
+    const { guides: newGuides } = getSnapPosition(e.active.id as string, e.delta.x, e.delta.y, objects);
     
     // Yüksek Performanslı 60fps Kılavuz Çizgileri
     const guideXEl = document.getElementById('guide-x');
@@ -991,22 +859,14 @@ export function SeatingPlanPage() {
     
     const xGuide = newGuides.find(g => g.axis === 'x');
     if (guideXEl) {
-      if (xGuide) {
-        guideXEl.style.display = 'block';
-        guideXEl.style.left = `${xGuide.pos}px`;
-      } else {
-        guideXEl.style.display = 'none';
-      }
+      if (xGuide) { guideXEl.style.display = 'block'; guideXEl.style.left = `${xGuide.pos}px`; }
+      else { guideXEl.style.display = 'none'; }
     }
 
     const yGuide = newGuides.find(g => g.axis === 'y');
     if (guideYEl) {
-      if (yGuide) {
-        guideYEl.style.display = 'block';
-        guideYEl.style.top = `${yGuide.pos}px`;
-      } else {
-        guideYEl.style.display = 'none';
-      }
+      if (yGuide) { guideYEl.style.display = 'block'; guideYEl.style.top = `${yGuide.pos}px`; }
+      else { guideYEl.style.display = 'none'; }
     }
   }
 
@@ -1061,11 +921,7 @@ export function SeatingPlanPage() {
     }
 
     const { active, delta } = e
-    if (delta.x === 0 && delta.y === 0) {
-      pcSnapTargetRef.current = null;
-      setPcSnapTarget(null);
-      return;
-    }
+    if (delta.x === 0 && delta.y === 0) return;
 
     const activeUUID = (active.id as string).replace('canvas_', '')
     const isGroupDrag = isSelectionMode && selectedIds.includes(activeUUID)
@@ -1076,14 +932,11 @@ export function SeatingPlanPage() {
     const finalDx = delta.x + snapX;
     const finalDy = delta.y + snapY;
 
-    const snapTarget = pcSnapTargetRef.current;
-    pcSnapTargetRef.current = null;
-    setPcSnapTarget(null);
-
     pushHistory();
 
     setObjects((prev) => {
       const movingIds = new Set<string>();
+
       if (isGroupDrag) {
         // Seçili öğrencilerin DATABASE ID'lerini topla
         const selectedStudentDBIds = new Set<string>();
@@ -1091,9 +944,7 @@ export function SeatingPlanPage() {
           const sObj = prev.find(o => o.id === sid && o.type === 'student');
           if (sObj?.studentId) selectedStudentDBIds.add(sObj.studentId);
         });
-
         selectedIds.forEach(id => movingIds.add(id));
-        
         // Bu öğrencilere bağlı PC etiketlerini de hareket grubuna dahil et
         prev.forEach(o => {
           if (o.type === 'pc_label' && o.linkedStudentId && selectedStudentDBIds.has(o.linkedStudentId)) {
@@ -1102,134 +953,23 @@ export function SeatingPlanPage() {
         });
       } else {
         movingIds.add(activeObj.id);
-      }
-
-      let next = prev.map((obj) => {
-        const isMoving = movingIds.has(obj.id);
-        if (!isMoving) return obj;
-
-        let newX = Math.round(obj.x + finalDx);
-        let newY = Math.round(obj.y + finalDy);
-
-        if (obj.id === activeObj.id && activeObj.type === 'pc_label' && snapTarget) {
-          const studentObjForSnap = prev.find(o => o.id === snapTarget.studentObjId);
-          if (studentObjForSnap) {
-            const pos = getPcSnapPosition(studentObjForSnap, snapTarget.side);
-            newX = Math.round(pos.x);
-            newY = Math.round(pos.y);
-          }
-        }
-        
-        return { ...obj, x: newX, y: newY };
-      });
-
-      const movedActive = next.find(o => o.id === activeObj.id);
-      if (!movedActive) return next;
-
-      // 4. ATAMA MANTIĞI (Sadece tekli taşımalarda veya aktif obje üzerinden)
-      
-      let pendingConflict: { pcNo: string, oldOwnerName: string, newOwnerId: string, pendingObjectsNext: SeatObject[] } | null = null;
-
-      // A) PC Etiketi Taşındıysa (Öğrenciye Atama)
-      if (activeObj.type === 'pc_label') {
-        const studentForSnap = snapTarget ? next.find(o => o.id === snapTarget.studentObjId) : null;
-        if (!isGroupDrag && studentForSnap?.studentId && activeObj.pcNo) {
-          const isStealing = activeObj.linkedStudentId && activeObj.linkedStudentId !== studentForSnap.studentId;
-          const oldOwner = isStealing ? students.find(s => s.id === activeObj.linkedStudentId) : null;
-
-          const resolveNext = next.map(o => {
-            if (o.id === activeObj.id) return { ...o, linkedStudentId: studentForSnap.studentId! };
-            if (o.type === 'pc_label' && o.linkedStudentId === studentForSnap.studentId && o.id !== activeObj.id) {
-              return { ...o, linkedStudentId: '' };
+        // Tekli sürüklemede de: bu öğrenciye bağlı pc_label'ı birlikte taşı
+        if (activeObj.type === 'student' && activeObj.studentId) {
+          prev.forEach(o => {
+            if (o.type === 'pc_label' && o.linkedStudentId === activeObj.studentId) {
+              movingIds.add(o.id);
             }
-            return o;
           });
-
-          if (isStealing && oldOwner) {
-            pendingConflict = {
-              pcNo: activeObj.pcNo,
-              oldOwnerName: oldOwner.adSoyad,
-              newOwnerId: studentForSnap.studentId,
-              pendingObjectsNext: resolveNext
-            };
-          } else {
-            next = resolveNext;
-            updateStudent(studentForSnap.studentId, { pcNo: activeObj.pcNo });
-          }
-        } 
-        // Bağlantıyı Koparma (Eski öğrenciden uzağa taşındıysa)
-        else if (!isGroupDrag && activeObj.linkedStudentId) {
-          const currentStudent = next.find(o => o.type === 'student' && o.studentId === activeObj.linkedStudentId);
-          if (currentStudent) {
-            const dist = Math.sqrt((movedActive.x - currentStudent.x)**2 + (movedActive.y - currentStudent.y)**2);
-            if (dist > 80) { 
-              next = next.map(o => o.id === activeObj.id ? { ...o, linkedStudentId: '' } : o);
-              updateStudent(activeObj.linkedStudentId, { pcNo: '' });
-            }
-          }
         }
       }
 
-      // B) Öğrenci Kartı Taşındıysa (PC Etiketine Snap veya Ayrılma)
-      else if (activeObj.type === 'student') {
-        if (snapTarget && !isGroupDrag) {
-          const targetLabel = next.find(o => o.id === snapTarget.studentObjId);
-          if (targetLabel && activeObj.studentId) {
-            const isStealing = targetLabel.linkedStudentId && targetLabel.linkedStudentId !== activeObj.studentId;
-            const oldOwner = isStealing ? students.find(s => s.id === targetLabel.linkedStudentId) : null;
-
-            const newPos = getPcSnapPosition(movedActive, snapTarget.side);
-            const resolveNext = next.map(o => {
-              if (o.id === targetLabel.id) return { ...o, linkedStudentId: activeObj.studentId!, x: Math.round(newPos.x), y: Math.round(newPos.y) };
-              if (o.type === 'pc_label' && o.linkedStudentId === activeObj.studentId && o.id !== targetLabel.id) return { ...o, linkedStudentId: '' };
-              return o;
-            });
-
-            if (isStealing && oldOwner) {
-              pendingConflict = {
-                pcNo: targetLabel.pcNo ?? '',
-                oldOwnerName: oldOwner.adSoyad,
-                newOwnerId: activeObj.studentId,
-                pendingObjectsNext: resolveNext
-              };
-            } else {
-              next = resolveNext;
-              updateStudent(activeObj.studentId, { pcNo: targetLabel.pcNo ?? '' });
-            }
-          }
-        } else if (!isGroupDrag && activeObj.studentId) {
-          const currentLabel = next.find(o => o.type === 'pc_label' && o.linkedStudentId === activeObj.studentId);
-          if (currentLabel) {
-            const dist = Math.sqrt((movedActive.x - currentLabel.x)**2 + (movedActive.y - currentLabel.y)**2);
-            if (dist > 80) { 
-              next = next.map(o => o.id === currentLabel.id ? { ...o, linkedStudentId: '' } : o);
-              updateStudent(activeObj.studentId, { pcNo: '' });
-            }
-          }
-        }
-      }
-
-      if (pendingConflict) {
-        // Modal açılıp asenkron bekleme yapılana kadar sadece görsel taşıma yapıyoruz, state'i kirletmiyoruz
-        setTimeout(() => setPcSwapConfirm(pendingConflict), 10);
-      }
+      const next = prev.map((obj) => {
+        if (!movingIds.has(obj.id)) return obj;
+        return { ...obj, x: Math.round(obj.x + finalDx), y: Math.round(obj.y + finalDy) };
+      });
 
       return next;
     });
-
-    // 6. Çoklu Taşıma Onay Diyaloğu (Özel Modal)
-    if (isGroupDrag && selectedIds.length > 1) {
-      const anyNearLabel = selectedIds.some(sid => {
-        const studentObj = objects.find(o => o.id === sid && o.type === 'student');
-        if (!studentObj) return false;
-        return !!computeStudentToLabelSnapTarget(studentObj.x + finalDx, studentObj.y + finalDy, objects);
-      });
-
-      if (anyNearLabel) {
-        setIdsForAssignment([...selectedIds]);
-        setShowAssignmentConfirm(true);
-      }
-    }
   }
 
   // Sayfa yükleniyorsa
@@ -1575,103 +1315,60 @@ export function SeatingPlanPage() {
                         <div id="guide-y" className="absolute left-0 right-0 h-[2px] bg-primary/40 -translate-y-1/2 shadow-sm z-40 pointer-events-none" style={{ display: 'none' }} />
 
                         {(() => {
+                          // Grup sürüklemede, hangi öğrencilerin seçili olduğunu bul
                           const selectedStudentDBIds = new Set<string>();
                           selectedIds.forEach(sid => {
                             const sObj = objects.find(o => o.id === sid && o.type === 'student');
                             if (sObj?.studentId) selectedStudentDBIds.add(sObj.studentId);
                           });
-                          
-                          return objects.map((obj) => {
+
+                          // Tekli sürüklemede aktif öğrenci
                           const activeUUID = activeId?.replace('canvas_', '');
                           const isMainDraggingSelected = !!(activeId !== null && isSelectionMode && activeUUID && selectedIds.includes(activeUUID));
+                          const draggingStudentObj = activeId && !isMainDraggingSelected
+                            ? objects.find(o => `canvas_${o.id}` === activeId && o.type === 'student')
+                            : null;
 
-                          
-                          let isFollowerDrag = isMainDraggingSelected && 
-                                               selectedIds.includes(obj.id) && 
-                                               `canvas_${obj.id}` !== activeId;
-                          
-                          // Toplu seçimde bir öğrenci sürükleniyorsa ve bu PC etiketi o öğrenciye bağlıysa, beraber hareket et
-                          if (!isFollowerDrag && isMainDraggingSelected && obj.type === 'pc_label' && obj.linkedStudentId) {
-                            if (selectedStudentDBIds.has(obj.linkedStudentId)) {
-                              isFollowerDrag = true;
+                          return objects.map((obj) => {
+                            let isFollowerDrag = false;
+
+                            if (isMainDraggingSelected) {
+                              // Grup taşıma: seçili objeler veya bağlı pc_label'lar takip eder
+                              isFollowerDrag = selectedIds.includes(obj.id) && `canvas_${obj.id}` !== activeId;
+                              if (!isFollowerDrag && obj.type === 'pc_label' && obj.linkedStudentId) {
+                                if (selectedStudentDBIds.has(obj.linkedStudentId)) isFollowerDrag = true;
+                              }
+                            } else if (draggingStudentObj && obj.type === 'pc_label') {
+                              // Tekli taşıma: öğrenciye bağlı pc_label takip eder
+                              if (obj.linkedStudentId === draggingStudentObj.studentId) isFollowerDrag = true;
                             }
-                          }
-                          // PC label sürüklenirken bu student kartı hedef mi?
-                          const isPcDragActive = activeId !== null && objects.find(o => `canvas_${o.id}` === activeId)?.type === 'pc_label';
-                          const isStudentDragActive = activeId !== null && objects.find(o => `canvas_${o.id}` === activeId)?.type === 'student';
-
-                          const pcSnapSide = (isPcDragActive && obj.type === 'student' && pcSnapTarget?.studentObjId === obj.id)
-                            ? pcSnapTarget.side
-                            : (isStudentDragActive && obj.type === 'pc_label' && pcSnapTarget?.studentObjId === obj.id)
-                               ? 'top' // Etiket seçildiğinde görsel vurgu
-                               : undefined;
-                          return (
-                            <DraggableItem
-                              key={obj.id}
-                              item={obj}
-                              student={obj.type === 'student' ? students.find(s => s.id === obj.studentId) : undefined}
-                              isSelectionMode={isSelectionMode}
-                              isSelected={selectedIds.includes(obj.id)}
-                              isFollowerDrag={isFollowerDrag}
-                              activeApplicationId={activeApplicationId}
-                              score={obj.type === 'student' && obj.studentId ? scores[obj.studentId] : undefined}
-                              pcSnapSide={pcSnapSide}
-                              onNumpadOpen={(studentId) => setNumpadOpenFor(studentId)}
-                              onDevamsizToggle={handleDevamsizToggle}
-                              onCameraOpen={openCameraForStudent}
-                              onFileUpload={handleFileUpload}
-                              onSelectionToggle={() => {
-                                if (!isSelectionMode) setIsSelectionMode(true);
-                                setSelectedIds((prev) => 
-                                  prev.includes(obj.id) ? prev.filter(id => id !== obj.id) : [...prev, obj.id]
-                                )
-                              }}
-                            />
-                          )
-                        })})()}
-
-                        {/* Bağlantı Çizgileri Layer (Üstte, objelerin üzerinde - pointer-events-none ile) */}
-                        <svg className="absolute inset-0 pointer-events-none w-full h-full" style={{ zIndex: 15 }}>
-                          {objects.filter(o => o.type === 'pc_label' && o.linkedStudentId).map(label => {
-                            const studentObj = objects.find(o => o.type === 'student' && o.studentId === label.linkedStudentId);
-                            if (!studentObj) return null;
-
-                            // Merkez koordinatları hesapla
-                            const lCx = label.x + 30; // PC Label Center
-                            const lCy = label.y + 17;
-                            const sCx = studentObj.x + 35; // Student Center
-                            const sCy = studentObj.y + 35;
-
-                            const dx = lCx - sCx;
-                            const dy = lCy - sCy;
-                            const dist = Math.sqrt(dx * dx + dy * dy);
-
-                            if (dist < 45) return null; // Çok yakınlarsa çizgi gösterme
-
-                            // Ofsetler: Merkezle kenar arası (Student ~22px, Label ~15px)
-                            const offS = 22;
-                            const offL = 15;
-
-                            const x1 = sCx + (dx / dist) * offS;
-                            const y1 = sCy + (dy / dist) * offS;
-                            const x2 = lCx - (dx / dist) * offL;
-                            const y2 = lCy - (dy / dist) * offL;
 
                             return (
-                              <line
-                                key={`conn-${label.id}-${studentObj.id}`}
-                                x1={x1}
-                                y1={y1}
-                                x2={x2}
-                                y2={y2}
-                                stroke="rgba(99, 102, 241, 0.5)"
-                                strokeWidth="2.5"
-                                strokeLinecap="round"
-                                className="conn-line"
+                              <DraggableItem
+                                key={obj.id}
+                                item={obj}
+                                student={obj.type === 'student' ? students.find(s => s.id === obj.studentId) : undefined}
+                                isSelectionMode={isSelectionMode}
+                                isSelected={selectedIds.includes(obj.id)}
+                                isFollowerDrag={isFollowerDrag}
+                                activeApplicationId={activeApplicationId}
+                                score={obj.type === 'student' && obj.studentId ? scores[obj.studentId] : undefined}
+                                onNumpadOpen={(studentId) => setNumpadOpenFor(studentId)}
+                                onDevamsizToggle={handleDevamsizToggle}
+                                onCameraOpen={openCameraForStudent}
+                                onFileUpload={handleFileUpload}
+                                onSelectionToggle={() => {
+                                  if (!isSelectionMode) setIsSelectionMode(true);
+                                  setSelectedIds((prev) =>
+                                    prev.includes(obj.id) ? prev.filter(id => id !== obj.id) : [...prev, obj.id]
+                                  )
+                                }}
                               />
-                            );
-                          })}
-                        </svg>
+                            )
+                          })
+                        })()}
+
+
                       </DroppableCanvas>
                     </div>
                   </DndContext>
@@ -1719,46 +1416,6 @@ export function SeatingPlanPage() {
         }}
       />
 
-      {/* Çoklu Taşıma Atama Onay Modalı */}
-      <AssignmentConfirmModal 
-        isOpen={showAssignmentConfirm}
-        onClose={() => setShowAssignmentConfirm(false)}
-        onConfirm={() => {
-          setShowAssignmentConfirm(false);
-          const targetIds = idsForAssignment;
-          
-          let next = [...objects];
-          let changedCount = 0;
-          
-          targetIds.forEach(sid => {
-            const studentObj = next.find(o => o.id === sid && o.type === 'student');
-            if (!studentObj || !studentObj.studentId) return;
-            const nearest = computeStudentToLabelSnapTarget(studentObj.x, studentObj.y, next);
-            if (nearest) {
-              const labelObj = next.find(o => o.id === nearest.labelId);
-              if (labelObj) {
-                const snapPos = getPcSnapPosition(studentObj, nearest.side);
-                changedCount++;
-                next = next.map(o => {
-                  if (o.id === labelObj.id) return { ...o, linkedStudentId: studentObj.studentId!, x: Math.round(snapPos.x), y: Math.round(snapPos.y) };
-                  if (o.type === 'pc_label' && o.linkedStudentId === studentObj.studentId && o.id !== labelObj.id) return { ...o, linkedStudentId: '' };
-                  return o;
-                });
-                updateStudent(studentObj.studentId, { pcNo: labelObj.pcNo ?? '' });
-              }
-            }
-          });
-
-          if (changedCount > 0) {
-            setObjects(next);
-            toast({ 
-              title: 'Masa Numaraları Atandı', 
-              description: `${changedCount} öğrenci için otomatik atama yapıldı.` 
-            });
-          }
-        }}
-      />
-
       {/* Kaydedilmemiş Değişiklikler Modalı */}
       <UnsavedConfirmModal 
         isOpen={showUnsavedConfirm}
@@ -1768,63 +1425,10 @@ export function SeatingPlanPage() {
           navigate('/courses/' + courseId);
         }}
       />
-
-      <ConfirmDialog
-        open={!!pcSwapConfirm}
-        onOpenChange={(v) => !v && setPcSwapConfirm(null)}
-        title="PC Numarası Çakışması"
-        description={pcSwapConfirm ? `${pcSwapConfirm.pcNo} numaralı bilgisayar şu anda "${pcSwapConfirm.oldOwnerName}" isimli öğrenciye ait. Bu bilgisayarı devretmek/takas etmek istiyor musunuz?` : ''}
-        confirmText="Evet, Devret"
-        cancelText="İptal"
-        onConfirm={() => {
-          if (pcSwapConfirm) {
-            updateStudent(pcSwapConfirm.newOwnerId, { pcNo: pcSwapConfirm.pcNo });
-            setObjects(pcSwapConfirm.pendingObjectsNext);
-            setPcSwapConfirm(null);
-          }
-        }}
-      />
     </Layout>
   )
 }
 
-function AssignmentConfirmModal({ isOpen, onClose, onConfirm }: { isOpen: boolean, onClose: () => void, onConfirm: () => void }) {
-  if (!isOpen) return null;
-  return createPortal(
-    <div className="fixed inset-0 z-[300] flex items-center justify-center p-6 animate-in fade-in duration-300">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-md" onClick={onClose} />
-      <div className="bg-white rounded-[32px] shadow-2xl border border-slate-200 w-full max-w-sm overflow-hidden relative animate-in zoom-in-95 slide-in-from-bottom-4 duration-300">
-        <div className="p-8 flex flex-col items-center text-center gap-6">
-          <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center">
-            <LayoutPanelTop className="w-8 h-8 text-blue-600" />
-          </div>
-          <div className="space-y-2">
-            <h3 className="text-xl font-bold text-slate-800">Masa Numarası Atansın mı?</h3>
-            <p className="text-sm text-slate-500 leading-relaxed px-4">
-              Çoklu taşımada masa numaraları otomatik atanmaz. Öğrencilere kapsama alanındaki en yakın masa numaraları atansın mı?
-            </p>
-          </div>
-          <div className="flex flex-col w-full gap-3 mt-2">
-            <Button 
-              onClick={onConfirm}
-              className="h-12 w-full bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-2xl shadow-lg shadow-blue-200 active:scale-95 transition-all"
-            >
-              Evet, Atansın
-            </Button>
-            <Button 
-              variant="ghost"
-              onClick={onClose}
-              className="h-12 w-full text-slate-500 font-bold rounded-2xl hover:bg-slate-50 active:scale-95 transition-all"
-            >
-              Hayır, Kalsın
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>,
-    document.body
-  );
-}
 
 function UnsavedConfirmModal({ isOpen, onClose, onConfirm }: { isOpen: boolean, onClose: () => void, onConfirm: () => void }) {
   if (!isOpen) return null;

@@ -15,7 +15,6 @@ interface DraggableItemProps {
   onSelectionToggle?: () => void
   activeApplicationId?: string | null
   score?: Score
-  pcSnapSide?: 'top' | 'right' | 'bottom' | 'left'
   onNumpadOpen?: (studentId: string) => void
   onDevamsizToggle?: (studentId: string) => void
   onCameraOpen?: (studentId: string) => void
@@ -24,23 +23,24 @@ interface DraggableItemProps {
 
 export function DraggableItem({
   item, student, isSelectionMode, isSelected, isFollowerDrag,
-  onSelectionToggle, pcSnapSide,
+  onSelectionToggle,
   activeApplicationId, score, onNumpadOpen, onDevamsizToggle, onCameraOpen, onFileUpload
 }: DraggableItemProps) {
   const [isExpanded, setIsExpanded] = useState(false)
-  const [pointerPos, setPointerPos] = useState<{x: number, y: number} | null>(null)
   const navigate = useNavigate()
   const { courseId } = useParams()
   const longPressTimer = useRef<NodeJS.Timeout | null>(null)
 
-  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
-    id: `canvas_${item.id}`,
-    data: item,
-  })
-
   const isPcLabel = item.type === 'pc_label';
   const isStudent = item.type === 'student' || item.type === 'empty_desk';
   const baseZIndex = isPcLabel ? 10 : (isStudent ? 20 : 5);
+
+  // pc_label tipi artık sürüklenemiyor — useDraggable disabled ile çağrılıyor
+  const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+    id: `canvas_${item.id}`,
+    data: item,
+    disabled: isPcLabel,
+  })
 
   useEffect(() => {
     if (isDragging) {
@@ -48,19 +48,6 @@ export function DraggableItem({
       if (longPressTimer.current) clearTimeout(longPressTimer.current)
     }
   }, [isDragging])
-
-  // Parmak takip: sürükleme sırasında pc_label için pointer pozisyonunu izle
-  useEffect(() => {
-    if (!isDragging || !isPcLabel) {
-      setPointerPos(null)
-      return
-    }
-    const handleMove = (e: PointerEvent) => {
-      setPointerPos({ x: e.clientX, y: e.clientY })
-    }
-    document.addEventListener('pointermove', handleMove)
-    return () => document.removeEventListener('pointermove', handleMove)
-  }, [isDragging, isPcLabel])
 
   useEffect(() => {
     if (isSelectionMode) setIsExpanded(false)
@@ -72,8 +59,8 @@ export function DraggableItem({
 
   const style = transform ? {
     transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
-    zIndex: isDragging ? (isPcLabel ? 55 : 50) : (isExpanded ? 40 : baseZIndex),
-    opacity: isDragging ? (isPcLabel ? 1 : 0.8) : 1,
+    zIndex: isDragging ? 50 : (isExpanded ? 40 : baseZIndex),
+    opacity: isDragging ? 0.8 : 1,
   } : {
     transform: isFollowerDrag ? `translate3d(var(--drag-x, 0px), var(--drag-y, 0px), 0)` : undefined,
     zIndex: isFollowerDrag ? 49 : (isExpanded ? 40 : baseZIndex),
@@ -166,11 +153,11 @@ export function DraggableItem({
         className={`drv-draggable touch-none select-none ${isDragging && item.type === 'student' ? 'shadow-xl shadow-primary/20' : ''}`}
       >
         <div
-          {...(isExpanded ? {} : listeners)}
-          {...(isExpanded ? {} : attributes)}
-          onPointerDown={handlePointerDown}
-          onPointerUp={handlePointerUp}
-          className={`absolute inset-0 ${isExpanded ? 'cursor-default' : (isSelectionMode ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing')}`}
+          {...(isExpanded || isPcLabel ? {} : listeners)}
+          {...(isExpanded || isPcLabel ? {} : attributes)}
+          onPointerDown={isPcLabel ? undefined : handlePointerDown}
+          onPointerUp={isPcLabel ? undefined : handlePointerUp}
+          className={`absolute inset-0 ${isExpanded || isPcLabel ? 'cursor-default' : (isSelectionMode ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing')}`}
         >
           <SmallCard
             item={item}
@@ -180,7 +167,6 @@ export function DraggableItem({
             isSelected={isSelected}
             hasActiveApp={!!activeApplicationId}
             score={score}
-            pcSnapSide={pcSnapSide}
           />
         </div>
       </div>
@@ -200,32 +186,6 @@ export function DraggableItem({
         />,
         document.body
       )}
-
-      {/* Sürükleme balonu — pc_label sürüklenirken parmağın 80px üzerinde gösterilir */}
-      {isDragging && isPcLabel && pointerPos && createPortal(
-        <div
-          className="fixed pointer-events-none z-[9999]"
-          style={{
-            left: pointerPos.x,
-            top: pointerPos.y - 88,
-            transform: 'translateX(-50%)',
-          }}
-        >
-          <div className="flex flex-col items-center gap-1">
-            <div className="bg-primary text-white font-black text-4xl px-5 py-2.5 rounded-2xl shadow-2xl shadow-primary/60 border-2 border-white/15 animate-in zoom-in-90 duration-100">
-              {item.pcNo}
-            </div>
-            {/* ok işaretçisi */}
-            <div className="w-0 h-0" style={{
-              borderLeft: '8px solid transparent',
-              borderRight: '8px solid transparent',
-              borderTop: '10px solid var(--color-primary, #6366f1)',
-              opacity: 0.85
-            }} />
-          </div>
-        </div>,
-        document.body
-      )}
     </>
   )
 }
@@ -240,10 +200,9 @@ interface SmallCardProps {
   isSelected?: boolean
   hasActiveApp: boolean
   score?: Score
-  pcSnapSide?: 'top' | 'right' | 'bottom' | 'left'
 }
 
-function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, hasActiveApp, score, pcSnapSide }: SmallCardProps) {
+function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, hasActiveApp, score }: SmallCardProps) {
   if (item.type === 'student' && student) {
     const isDevamsiz = score?.devamsiz ?? false
     const puan = score?.puan
@@ -252,7 +211,7 @@ function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, has
       <div className="inset-0 w-[70px] h-[70px] group absolute">
         <div className={`w-full h-full bg-background overflow-hidden relative shadow-sm transition-all duration-200 border border-slate-200/80 rounded-2xl ${
           isExpanded ? 'ring-2 ring-primary/60 shadow-lg scale-95' : ''
-        } ${isSelected ? 'ring-4 ring-primary shadow-xl scale-95' : (pcSnapSide ? 'ring-4 ring-indigo-500/40 border-indigo-400 shadow-lg shadow-indigo-500/20' : (isSelectionMode ? 'opacity-80 scale-95' : 'hover:ring-2 hover:ring-primary/50'))}`}>
+        } ${isSelected ? 'ring-4 ring-primary shadow-xl scale-95' : (isSelectionMode ? 'opacity-80 scale-95' : 'hover:ring-2 hover:ring-primary/50')}`}>
           {student.foto ? (
             <OfflineImage src={student.foto} alt={student.adSoyad} className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" />
           ) : (
@@ -268,28 +227,6 @@ function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, has
             </span>
           </div>
         </div>
-
-        {/* Kenar snap göstergeleri — pc_label sonuç yerleştirme noktaları */}
-        {pcSnapSide && (
-          <>
-            {/* Üst kenar */}
-            <div className={`absolute -top-2 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 z-50 pointer-events-none transition-all duration-100 ${
-              pcSnapSide === 'top' ? 'bg-indigo-500 border-indigo-300 scale-125 shadow-lg shadow-indigo-500/50' : 'bg-white/60 border-indigo-400/50 scale-75'
-            }`} />
-            {/* Sağ kenar */}
-            <div className={`absolute top-1/2 -right-2 -translate-y-1/2 w-3 h-3 rounded-full border-2 z-50 pointer-events-none transition-all duration-100 ${
-              pcSnapSide === 'right' ? 'bg-indigo-500 border-indigo-300 scale-125 shadow-lg shadow-indigo-500/50' : 'bg-white/60 border-indigo-400/50 scale-75'
-            }`} />
-            {/* Alt kenar */}
-            <div className={`absolute -bottom-2 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full border-2 z-50 pointer-events-none transition-all duration-100 ${
-              pcSnapSide === 'bottom' ? 'bg-indigo-500 border-indigo-300 scale-125 shadow-lg shadow-indigo-500/50' : 'bg-white/60 border-indigo-400/50 scale-75'
-            }`} />
-            {/* Sol kenar */}
-            <div className={`absolute top-1/2 -left-2 -translate-y-1/2 w-3 h-3 rounded-full border-2 z-50 pointer-events-none transition-all duration-100 ${
-              pcSnapSide === 'left' ? 'bg-indigo-500 border-indigo-300 scale-125 shadow-lg shadow-indigo-500/50' : 'bg-white/60 border-indigo-400/50 scale-75'
-            }`} />
-          </>
-        )}
 
         {/* Puan rozeti */}
         {hasActiveApp && puan !== null && puan !== undefined && (
@@ -316,17 +253,14 @@ function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, has
   }
 
   if (item.type === 'pc_label') {
-    const isTargeted = !!pcSnapSide;
     const isLinked = !!item.linkedStudentId;
     return (
-      <div className={`w-[60px] h-[34px] backdrop-blur-sm border-2 rounded-xl flex items-center justify-center cursor-grab active:cursor-grabbing select-none transition-all duration-200 ${
-        isTargeted 
-          ? 'bg-blue-100 border-primary/15 scale-110 shadow-lg shadow-primary/30 rotate-6' 
-          : 'bg-white/70 border-slate-400/15 shadow-sm hover:bg-white/90 hover:shadow-md'
+      <div className={`w-[60px] h-[34px] backdrop-blur-sm border-2 rounded-xl flex items-center justify-center select-none transition-all duration-200 ${
+        isLinked
+          ? 'bg-white/70 border-slate-400/15 shadow-sm'
+          : 'bg-white/40 border-slate-300/20 shadow-sm'
       }`}>
-        <span className={`font-black text-[22px] leading-none transition-colors ${
-          isTargeted ? 'text-primary' : (isLinked ? 'text-slate-700' : 'text-slate-400')
-        }`}>
+        <span className={`font-black text-[22px] leading-none ${isLinked ? 'text-slate-700' : 'text-slate-400'}`}>
           {item.pcNo}
         </span>
       </div>

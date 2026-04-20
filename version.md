@@ -21,3 +21,5 @@ v1.15.2 20.04.2026 - Oturma planı sayfasında otomatik kaydetme özelliği devr
 v1.15.3 20.04.2026 - Sistem genelindeki tarayıcı uyarıları modern dialog (ConfirmDialog) ile değiştirildi.
 
 v1.16 20.04.2026 - Öğrenci PC numarası çakışma yönetimi ve doğrulama sistemi eklendi. Profil sayfası ve oturma planı üzerinde mükerrer atamaları engelleyen akıllı onay dialogu (ConfirmDialog) entegre edildi. PC no devir/takas işlemleri kontrollü hale getirildi.
+
+v1.17 20.04.2026 - PC no etiketleri oturma planında sürüklenemeyen, öğrenci kartına yapışık yapıya dönüştürüldü. Tüm pc_label drag/snap/atama mantığı, AssignmentConfirmModal, pcSwapConfirm, SVG bağlantı çizgileri ve ilgili boştaki değişkenler temizlendi. PC no değişikliği artık sadece öğrenci profili sayfasından yapılabiliyor.
