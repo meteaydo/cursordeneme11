@@ -12,6 +12,7 @@ export interface HeaderProps {
   hideTitleOnDesktop?: boolean
   leftExtra?: React.ReactNode
   backTitle?: string
+  onBackClick?: () => void
 }
 
 export function Header({ 
@@ -22,12 +23,17 @@ export function Header({
   rightAction,
   hideTitleOnDesktop = false,
   leftExtra,
-  backTitle
+  backTitle,
+  onBackClick
 }: HeaderProps) {
   const navigate = useNavigate()
   const { logout, user } = useAuth()
 
   const handleBack = () => {
+    if (onBackClick) {
+      onBackClick()
+      return
+    }
     if (backTo) navigate(backTo)
     else navigate(-1)
   }

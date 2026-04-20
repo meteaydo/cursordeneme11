@@ -13,6 +13,7 @@ interface LayoutProps {
   hideTitleOnDesktop?: boolean
   leftExtra?: ReactNode
   backTitle?: string
+  onBackClick?: () => void
 }
 
 export function Layout({ 
@@ -24,7 +25,8 @@ export function Layout({
   rightAction,
   hideTitleOnDesktop,
   leftExtra,
-  backTitle
+  backTitle,
+  onBackClick
 }: LayoutProps) {
   const [spotlightOpen, setSpotlightOpen] = useState(false)
 
@@ -39,6 +41,7 @@ export function Layout({
         hideTitleOnDesktop={hideTitleOnDesktop}
         leftExtra={leftExtra}
         backTitle={backTitle}
+        onBackClick={onBackClick}
       />
       <main className="flex-1 container max-w-2xl mx-auto px-4 py-4 pb-24">
         {children}

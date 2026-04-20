@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import { useParams, useLocation } from 'react-router-dom'
+import { useParams, useLocation, useNavigate } from 'react-router-dom'
 // @ts-ignore
 import { v4 as uuidv4 } from 'uuid'
 import { 
@@ -102,6 +102,7 @@ class SmartTouchSensor extends TouchSensor {
 export function SeatingPlanPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const location = useLocation()
+  const navigate = useNavigate()
   const navState = location.state as { applicationId?: string; applicationAd?: string } | null
   
   const { courses, updateCourse, loading: courseLoading } = useCourses()
@@ -132,6 +133,7 @@ export function SeatingPlanPage() {
   const [showAssignmentConfirm, setShowAssignmentConfirm] = useState(false)
   const [idsForAssignment, setIdsForAssignment] = useState<string[]>([])
   const [isShareOpen, setIsShareOpen] = useState(false)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
 
   // Selection DB ID Calculation
   const selectedStudentDBIds = new Set<string>();
@@ -160,8 +162,6 @@ export function SeatingPlanPage() {
     lab: []
   })
 
-  // Persist debounce timer
-  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // Always-current objects ref — stale closure'u önler
   const objectsRef = useRef<SeatObject[]>(objects)
   
@@ -425,22 +425,43 @@ export function SeatingPlanPage() {
     objectsRef.current = objects;
   });
 
-  // Auto-save effect
+  // Auto-save iptal edildi. Yerine sadece unsaved tracking eklendi.
   useEffect(() => {
     if (!initDone) return;
-    
-    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
-    persistTimerRef.current = setTimeout(() => {
-      // objectsRef.current: Her zaman en güncel objects state'ini içerir (stale-closure yok)
-      const currentObjects = objectsRef.current;
-      if (currentObjects.length === 0) return;
-      persistPlan(currentObjects);
-    }, 1000); // 1 saniye debounce
+    if (saving) return; // Kayıt yapılıyorsa geçici uyuşmazlığı yoksay
 
-    return () => {
-      if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    const currentJSON = JSON.stringify(objectsRef.current);
+    const layoutJSON = JSON.stringify(layouts[layoutMode]);
+
+    if (currentJSON !== layoutJSON) {
+      setHasUnsavedChanges(true);
+    } else {
+      setHasUnsavedChanges(false);
+    }
+  }, [objects, layouts, layoutMode, initDone, saving]);
+
+  // Sayfadan ayrılırken tarayıcı yönlendirme uyarısı (Sekme kapatma vs)
+  useEffect(() => {
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (hasUnsavedChanges) {
+        e.preventDefault();
+        e.returnValue = '';
+      }
     };
-  }, [objects, initDone]);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+
+  // Sayfa içi SPA Geri Dönüşünü kontrol etme
+  const handleBackNavigation = () => {
+    if (hasUnsavedChanges) {
+      if (window.confirm('Kaydedilmemiş değişiklikler var. Değişiklikleri kaydetmeden çıkmak istiyor musunuz?')) {
+        navigate('/courses/' + courseId);
+      }
+    } else {
+      navigate('/courses/' + courseId);
+    }
+  }
 
   useEffect(() => {
     if (!activeApplicationId) return
@@ -776,6 +797,7 @@ export function SeatingPlanPage() {
     try {
       // Save current objects to current mode
       persistPlan(objects, layoutMode);
+      setHasUnsavedChanges(false); // Kayıt başarılı, bayrağı indir
       toast({ title: 'Başarılı', description: 'Oturma planı kaydedildi.' })
     } catch {
       toast({ title: 'Hata', description: 'Kaydedilirken bir hata oluştu.', variant: 'destructive' })
@@ -1196,6 +1218,7 @@ export function SeatingPlanPage() {
       backTitle="Liste Görünümü"
       showLogout={false}
       hideTitleOnDesktop={true}
+      onBackClick={handleBackNavigation}
       leftExtra={
         <div className="flex flex-col items-start gap-0.5">
           <span className="text-[13px] font-bold text-slate-800 uppercase tracking-[0.15em]">
@@ -1210,7 +1233,20 @@ export function SeatingPlanPage() {
         </div>
       }
       rightAction={
-        <div className="relative pointer-events-auto md:hidden z-[220] overflow-visible" ref={toolbarMobileRef}>
+        <div className="flex items-center gap-1.5 pointer-events-auto">
+          {hasUnsavedChanges && (
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleSave}
+              disabled={saving}
+              className="bg-green-600 hover:bg-green-700 text-white flex gap-1.5 h-9 items-center rounded-xl px-3 animate-in fade-in zoom-in duration-300 shadow-md shadow-green-600/30"
+            >
+              {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin"/> : <Save className="w-3.5 h-3.5"/>}
+              <span className="text-[10px] font-bold uppercase tracking-wider relative top-[0.5px]">Kaydet</span>
+            </Button>
+          )}
+          <div className="relative pointer-events-auto md:hidden z-[220] overflow-visible" ref={toolbarMobileRef}>
           <Button 
             variant="ghost" 
             size="icon" 
@@ -1252,6 +1288,7 @@ export function SeatingPlanPage() {
                 </Button>
             </div>
           </div>
+        </div>
         </div>
       }
     >
