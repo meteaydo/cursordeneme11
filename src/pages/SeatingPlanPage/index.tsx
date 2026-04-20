@@ -29,6 +29,7 @@ import { DraggableItem } from './components/DraggableItem'
 import { SmartNumpad } from '@/components/ui/smart-numpad'
 import { Loader2, Save, RotateCcw, Plus, Undo2, Redo2, LayoutPanelTop, Trash2, ZoomIn, ZoomOut, Settings, FileSpreadsheet, Printer } from 'lucide-react'
 import { generateSeatingPlanExcel } from '@/services/excelSeatingService'
+import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 
 
 const getObjectSize = (type: string) => {
@@ -135,6 +136,13 @@ export function SeatingPlanPage() {
   const [isShareOpen, setIsShareOpen] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false)
+
+  const [pcSwapConfirm, setPcSwapConfirm] = useState<{
+    pcNo: string,
+    oldOwnerName: string,
+    newOwnerId: string,
+    pendingObjectsNext: SeatObject[]
+  } | null>(null)
 
   // Selection DB ID Calculation
   const selectedStudentDBIds = new Set<string>();
@@ -1120,18 +1128,34 @@ export function SeatingPlanPage() {
 
       // 4. ATAMA MANTIĞI (Sadece tekli taşımalarda veya aktif obje üzerinden)
       
+      let pendingConflict: { pcNo: string, oldOwnerName: string, newOwnerId: string, pendingObjectsNext: SeatObject[] } | null = null;
+
       // A) PC Etiketi Taşındıysa (Öğrenciye Atama)
       if (activeObj.type === 'pc_label') {
         const studentForSnap = snapTarget ? next.find(o => o.id === snapTarget.studentObjId) : null;
         if (!isGroupDrag && studentForSnap?.studentId && activeObj.pcNo) {
-          updateStudent(studentForSnap.studentId, { pcNo: activeObj.pcNo });
-          next = next.map(o => {
+          const isStealing = activeObj.linkedStudentId && activeObj.linkedStudentId !== studentForSnap.studentId;
+          const oldOwner = isStealing ? students.find(s => s.id === activeObj.linkedStudentId) : null;
+
+          const resolveNext = next.map(o => {
             if (o.id === activeObj.id) return { ...o, linkedStudentId: studentForSnap.studentId! };
             if (o.type === 'pc_label' && o.linkedStudentId === studentForSnap.studentId && o.id !== activeObj.id) {
               return { ...o, linkedStudentId: '' };
             }
             return o;
           });
+
+          if (isStealing && oldOwner) {
+            pendingConflict = {
+              pcNo: activeObj.pcNo,
+              oldOwnerName: oldOwner.adSoyad,
+              newOwnerId: studentForSnap.studentId,
+              pendingObjectsNext: resolveNext
+            };
+          } else {
+            next = resolveNext;
+            updateStudent(studentForSnap.studentId, { pcNo: activeObj.pcNo });
+          }
         } 
         // Bağlantıyı Koparma (Eski öğrenciden uzağa taşındıysa)
         else if (!isGroupDrag && activeObj.linkedStudentId) {
@@ -1151,13 +1175,27 @@ export function SeatingPlanPage() {
         if (snapTarget && !isGroupDrag) {
           const targetLabel = next.find(o => o.id === snapTarget.studentObjId);
           if (targetLabel && activeObj.studentId) {
+            const isStealing = targetLabel.linkedStudentId && targetLabel.linkedStudentId !== activeObj.studentId;
+            const oldOwner = isStealing ? students.find(s => s.id === targetLabel.linkedStudentId) : null;
+
             const newPos = getPcSnapPosition(movedActive, snapTarget.side);
-            next = next.map(o => {
+            const resolveNext = next.map(o => {
               if (o.id === targetLabel.id) return { ...o, linkedStudentId: activeObj.studentId!, x: Math.round(newPos.x), y: Math.round(newPos.y) };
               if (o.type === 'pc_label' && o.linkedStudentId === activeObj.studentId && o.id !== targetLabel.id) return { ...o, linkedStudentId: '' };
               return o;
             });
-            updateStudent(activeObj.studentId, { pcNo: targetLabel.pcNo ?? '' });
+
+            if (isStealing && oldOwner) {
+              pendingConflict = {
+                pcNo: targetLabel.pcNo ?? '',
+                oldOwnerName: oldOwner.adSoyad,
+                newOwnerId: activeObj.studentId,
+                pendingObjectsNext: resolveNext
+              };
+            } else {
+              next = resolveNext;
+              updateStudent(activeObj.studentId, { pcNo: targetLabel.pcNo ?? '' });
+            }
           }
         } else if (!isGroupDrag && activeObj.studentId) {
           const currentLabel = next.find(o => o.type === 'pc_label' && o.linkedStudentId === activeObj.studentId);
@@ -1169,6 +1207,11 @@ export function SeatingPlanPage() {
             }
           }
         }
+      }
+
+      if (pendingConflict) {
+        // Modal açılıp asenkron bekleme yapılana kadar sadece görsel taşıma yapıyoruz, state'i kirletmiyoruz
+        setTimeout(() => setPcSwapConfirm(pendingConflict), 10);
       }
 
       return next;
@@ -1723,6 +1766,22 @@ export function SeatingPlanPage() {
         onConfirm={() => {
           setShowUnsavedConfirm(false);
           navigate('/courses/' + courseId);
+        }}
+      />
+
+      <ConfirmDialog
+        open={!!pcSwapConfirm}
+        onOpenChange={(v) => !v && setPcSwapConfirm(null)}
+        title="PC Numarası Çakışması"
+        description={pcSwapConfirm ? `${pcSwapConfirm.pcNo} numaralı bilgisayar şu anda "${pcSwapConfirm.oldOwnerName}" isimli öğrenciye ait. Bu bilgisayarı devretmek/takas etmek istiyor musunuz?` : ''}
+        confirmText="Evet, Devret"
+        cancelText="İptal"
+        onConfirm={() => {
+          if (pcSwapConfirm) {
+            updateStudent(pcSwapConfirm.newOwnerId, { pcNo: pcSwapConfirm.pcNo });
+            setObjects(pcSwapConfirm.pendingObjectsNext);
+            setPcSwapConfirm(null);
+          }
         }}
       />
     </Layout>

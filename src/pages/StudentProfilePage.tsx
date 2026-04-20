@@ -24,7 +24,7 @@ import { toast } from '@/hooks/use-toast'
 import type { StudentFormData } from '@/types'
 import { uploadToR2 } from '@/lib/r2'
 import imageCompression from 'browser-image-compression'
-
+import { formatClassName } from '@/lib/utils'
 const LONG_PRESS_MS = 200
 const MOVE_THRESHOLD = 5
 
@@ -66,6 +66,9 @@ export default function StudentProfilePage() {
   const [editingBehaviorLog, setEditingBehaviorLog] = useState<any | null>(null)
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
   const behaviorDropdownRef = useRef<HTMLDivElement>(null)
+
+  const [localPcNo, setLocalPcNo] = useState('')
+  const [pcConflictConfirm, setPcConflictConfirm] = useState<{ newPcNo: string, conflictStudent: any } | null>(null)
 
   // Click outside listener for behavior dropdown
   useEffect(() => {
@@ -153,12 +156,31 @@ export default function StudentProfilePage() {
       pIdRef.current = null
     }
     if (pcDragReady && isDragOver && form?.pcNo) {
-      setForm({ ...form, eskiPcNolari: [form.pcNo, ...form.eskiPcNolari.filter((p) => p !== form.pcNo)] })
+      setForm({ ...form, pcNo: '', eskiPcNolari: [form.pcNo, ...form.eskiPcNolari.filter((p) => p !== form.pcNo)] })
+      setLocalPcNo('')
     }
     setPcDragReady(false)
     setPcDragging(false)
     setIsDragOver(false)
   }
+
+  const handlePcNoBlurOrEnter = (val: string) => {
+    if (!form) return;
+    const newPcNo = formatClassName(val);
+    setLocalPcNo(newPcNo);
+    
+    // Değişiklik yoksa çık
+    if (newPcNo === form.pcNo) return;
+    
+    if (newPcNo) {
+      const conflict = students.find(s => s.pcNo === newPcNo && s.id !== sId);
+      if (conflict) {
+        setPcConflictConfirm({ newPcNo, conflictStudent: conflict });
+        return;
+      }
+    }
+    setForm({ ...form, pcNo: newPcNo });
+  };
 
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -185,6 +207,7 @@ export default function StudentProfilePage() {
         bepPlaniYapildi: student.bepPlaniYapildi ?? false,
         foto: student.foto ?? '',
       })
+      setLocalPcNo(student.pcNo || '')
     }
   }, [student])
 
@@ -645,8 +668,15 @@ export default function StudentProfilePage() {
                 >
                   <Input
                     ref={pcInputRef}
-                    value={form.pcNo}
-                    onChange={(e) => setForm({ ...form, pcNo: e.target.value })}
+                    value={localPcNo}
+                    onChange={(e) => setLocalPcNo(e.target.value)}
+                    onBlur={(e) => handlePcNoBlurOrEnter(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        handlePcNoBlurOrEnter(e.currentTarget.value)
+                        pcInputRef.current?.blur()
+                      }
+                    }}
                     className={`px-1.5 ${pcDragReady ? 'pointer-events-none' : ''}`}
                   />
                 </div>
@@ -1092,6 +1122,26 @@ export default function StudentProfilePage() {
           {form.pcNo}
         </div>
       )}
+
+      <ConfirmDialog
+        open={!!pcConflictConfirm}
+        onOpenChange={(open) => {
+          if (!open) {
+            setPcConflictConfirm(null);
+            if (form) setLocalPcNo(form.pcNo); // Revert
+          }
+        }}
+        title="PC Numarası Çakışması"
+        description={`${pcConflictConfirm?.newPcNo} bilgisayarı şu anda "${pcConflictConfirm?.conflictStudent.adSoyad}" isimli öğrenciye atanmış durumda. Bu bilgisayarı ondan alıp ${student.adSoyad} isimli öğrenciye devretmek/takas etmek istiyor musunuz?`}
+        confirmText="Evet, Devret"
+        cancelText="İptal"
+        onConfirm={() => {
+          if (pcConflictConfirm && form) {
+            setForm({ ...form, pcNo: pcConflictConfirm.newPcNo });
+            setLocalPcNo(pcConflictConfirm.newPcNo);
+          }
+        }}
+      />
     </Layout>
   )
 }
