@@ -4,7 +4,7 @@ import type { SeatObject, Score } from '@/types'
 import { OfflineImage } from '@/components/ui/OfflineImage'
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { ArrowUpRight, Camera, Upload, X, Check } from 'lucide-react'
+import { ArrowUpRight, Camera, Upload, X, Check, Trash2 } from 'lucide-react'
 import { useStudents } from '@/hooks/useStudents'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
@@ -28,11 +28,12 @@ interface DraggableItemProps {
   onDevamsizToggle?: (studentId: string) => void
   onCameraOpen?: (studentId: string) => void
   onFileUpload?: (e: React.ChangeEvent<HTMLInputElement>, studentId: string) => void
+  onRemove?: (id: string) => void
 }
 
 export function DraggableItem({
   item, student, studentsList, updateStudentData, isSelectionMode, isSelected, isFollowerDrag,
-  onSelectionToggle,
+  onSelectionToggle, onRemove,
   activeApplicationId, score, onNumpadOpen, onDevamsizToggle, onCameraOpen, onFileUpload
 }: DraggableItemProps) {
   const [isExpanded, setIsExpanded] = useState(false)
@@ -86,7 +87,7 @@ export function DraggableItem({
     clickStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() }
     
     // 1.5 saniye basılı tutma timer'ını başlat (Seçim moduna girmek için)
-    if (!isExpanded && item.type === 'student' && !isSelectionMode) {
+    if (!isExpanded && (item.type === 'student' || item.type === 'empty_desk') && !isSelectionMode) {
       longPressTimer.current = setTimeout(() => {
         if (onSelectionToggle) {
           onSelectionToggle()
@@ -114,7 +115,7 @@ export function DraggableItem({
       longPressTimer.current = null
     }
     
-    if (!clickStartRef.current || isDragging || item.type !== 'student') return
+    if (!clickStartRef.current || isDragging || (item.type !== 'student' && item.type !== 'empty_desk')) return
     const dx = Math.abs(e.clientX - clickStartRef.current.x)
     const dy = Math.abs(e.clientY - clickStartRef.current.y)
     const dt = Date.now() - clickStartRef.current.time
@@ -159,7 +160,7 @@ export function DraggableItem({
           height: itemHeight,
           ...style
         }}
-        className={`drv-draggable touch-none select-none ${isDragging && item.type === 'student' ? 'shadow-xl shadow-primary/20' : ''}`}
+        className={`drv-draggable touch-none select-none ${isDragging && (item.type === 'student' || item.type === 'empty_desk') ? 'shadow-xl shadow-primary/20' : ''}`}
       >
         <div
           {...(isExpanded || isPcLabel ? {} : listeners)}
@@ -176,12 +177,13 @@ export function DraggableItem({
             isSelected={isSelected}
             hasActiveApp={!!activeApplicationId}
             score={score}
+            onRemove={onRemove}
           />
         </div>
       </div>
 
       {/* Büyük Kart — document.body portalı (zoom'dan bağımsız) */}
-      {isExpanded && student && item.type === 'student' && createPortal(
+      {isExpanded && student && (item.type === 'student' || item.type === 'empty_desk') && createPortal(
         <ExpandedCardOverlay
           student={student}
           studentsList={studentsList || []}
@@ -211,9 +213,10 @@ interface SmallCardProps {
   isSelected?: boolean
   hasActiveApp: boolean
   score?: Score
+  onRemove?: (id: string) => void
 }
 
-function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, hasActiveApp, score }: SmallCardProps) {
+function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, hasActiveApp, score, onRemove }: SmallCardProps) {
   if (item.type === 'student' && student) {
     const isDevamsiz = score?.devamsiz ?? false
     const puan = score?.puan
@@ -289,8 +292,28 @@ function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, has
 
   if (item.type === 'empty_desk') {
     return (
-      <div className="w-[70px] h-[70px] bg-muted/30 border-2 border-dashed border-muted-foreground/30 rounded-xl flex flex-col items-center justify-center p-2 shadow-sm">
+      <div className={`w-[70px] h-[70px] bg-muted/10 border-2 border-dashed border-muted-foreground/30 rounded-xl flex flex-col items-center justify-center p-2 relative transition-all duration-200 ${
+        isExpanded ? 'ring-2 ring-primary/60 shadow-lg scale-95' : 'shadow-sm'
+      } ${isSelected ? 'ring-4 ring-primary shadow-xl scale-95 border-solid' : (isSelectionMode ? 'opacity-80 scale-95' : 'hover:border-primary/50 hover:bg-muted/30')}`}>
         <span className="text-[10px] font-medium text-muted-foreground text-center">Boş<br/>Sıra</span>
+        
+        {/* Silme Butonu */}
+        {!isSelectionMode && onRemove && (
+          <button 
+             onPointerDown={(e) => e.stopPropagation()} 
+             onClick={(e) => { e.stopPropagation(); onRemove(item.id); }}
+             className="absolute -top-2 -right-2 w-6 h-6 bg-white rounded-full shadow-md border border-slate-200 flex items-center justify-center text-slate-400 hover:text-red-500 hover:border-red-200 hover:bg-red-50 transition-colors z-50"
+             title="Sırayı Sil"
+          >
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+
+        {isSelectionMode && (
+          <div className="absolute -top-2 -right-2 w-6 h-6 bg-white rounded-full shadow-md border-2 border-slate-100 flex items-center justify-center z-50">
+            {isSelected && <div className="w-3 h-3 bg-primary rounded-full animate-in zoom-in" />}
+          </div>
+        )}
       </div>
     )
   }
@@ -478,14 +501,16 @@ function ExpandedCardOverlay({
         onPointerDown={(e) => e.stopPropagation()}
       >
         {/* Profil Butonu — kartın üstünde */}
-        <button
-          onClick={onGoToProfile}
-          className="flex items-center justify-center gap-2 h-10 bg-white/90 backdrop-blur-sm text-slate-700 font-bold text-sm rounded-full shadow-lg border border-white/60 hover:bg-white active:scale-95 transition-all"
-          style={{ width: cardSize }}
-        >
-          <ArrowUpRight className="w-4 h-4" />
-          <span>Öğrenci Profili</span>
-        </button>
+        {student.adSoyad !== 'Boş Sıra' && (
+          <button
+            onClick={onGoToProfile}
+            className="flex items-center justify-center gap-2 h-10 bg-white/90 backdrop-blur-sm text-slate-700 font-bold text-sm rounded-full shadow-lg border border-white/60 hover:bg-white active:scale-95 transition-all"
+            style={{ width: cardSize }}
+          >
+            <ArrowUpRight className="w-4 h-4" />
+            <span>Öğrenci Profili</span>
+          </button>
+        )}
 
         {/* Kart */}
         <div
@@ -526,7 +551,7 @@ function ExpandedCardOverlay({
         </div>
 
         {/* Puanlama Paneli */}
-        {hasActiveApp && (
+        {hasActiveApp && student.adSoyad !== 'Boş Sıra' && (
           <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-slate-200/80 overflow-hidden" style={{ width: cardSize }}>
             {/* Puan + Devamsız */}
             <div className="flex items-stretch">

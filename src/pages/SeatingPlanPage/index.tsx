@@ -633,6 +633,22 @@ export function SeatingPlanPage() {
     }
   }, [course?.id, students.length, initDone])
 
+  const updateEmptyDeskInfo = (deskId: string, data: any) => {
+    setObjects(prev => {
+      const next = prev.map(o => {
+        if (o.type === 'empty_desk' && o.id === deskId) {
+           return { ...o, ...data };
+        }
+        if (o.type === 'pc_label' && o.linkedStudentId === deskId && data.pcNo !== undefined) {
+           return { ...o, pcNo: data.pcNo };
+        }
+        return o;
+      });
+      persistPlan(next);
+      return next;
+    });
+  }
+
   // Öğrenci profilinde pcNo değişirse (Takas dahil) → kanvastaki pc_label nesnelerini senkronize et.
   useEffect(() => {
     if (!initDone || objects.length === 0) return;
@@ -650,7 +666,13 @@ export function SeatingPlanPage() {
       const updated = prev.map(obj => {
         if (obj.type !== 'pc_label') return obj;
 
-        // Sahip güncellemesi: linkedStudentId üzerinden PC no çek
+        // Sahip güncellemesi: linkedStudentId bir boş masaya aitse elleme, onun güncellemesi kendi dialogundan oluyor
+        const linkedObj = prev.find(o => (o.type === 'student' && o.studentId === obj.linkedStudentId) || (o.type === 'empty_desk' && o.id === obj.linkedStudentId));
+        if (linkedObj && linkedObj.type === 'empty_desk') {
+          return obj;
+        }
+
+        // Sahip güncellemesi: öğrenci ise PC no çek
         if (obj.linkedStudentId) {
           const freshPcNo = pcNoByStudent.get(obj.linkedStudentId);
           if (freshPcNo !== undefined && freshPcNo !== obj.pcNo) {
@@ -741,22 +763,24 @@ export function SeatingPlanPage() {
       const pcNo = String(i + 1);
       const tempTargetObj = { x: spot.x, y: spot.y, type: 'student' } as SeatObject;
       const pcPos = getPcSnapPosition(tempTargetObj);
+      const deskId = uuidv4();
+      const isStudent = i < sortedStudents.length;
 
       newObjects.push({
         id: uuidv4(),
         type: 'pc_label',
         pcNo,
-        linkedStudentId: i < sortedStudents.length ? sortedStudents[i].id : '',
+        linkedStudentId: isStudent ? sortedStudents[i].id : deskId,
         x: pcPos.x,
         y: pcPos.y,
       });
 
-      if (i < sortedStudents.length) {
+      if (isStudent) {
         const s = sortedStudents[i];
-        newObjects.push({ id: uuidv4(), type: 'student', studentId: s.id, x: spot.x, y: spot.y });
+        newObjects.push({ id: deskId, type: 'student', studentId: s.id, x: spot.x, y: spot.y });
         updateStudent(s.id, { pcNo });
       } else {
-        newObjects.push({ id: uuidv4(), type: 'empty_desk', x: spot.x, y: spot.y });
+        newObjects.push({ id: deskId, type: 'empty_desk', x: spot.x, y: spot.y, pcNo: pcNo, eskiPcNolari: [] });
       }
     }
     return newObjects;
@@ -802,9 +826,28 @@ export function SeatingPlanPage() {
     }
   }
 
+  const handleRemoveObject = (idToRemove: string) => {
+    pushHistory();
+    setObjects(prev => {
+      const next = prev.filter(o => {
+        if (o.id === idToRemove) return false;
+        if (o.type === 'pc_label' && o.linkedStudentId === idToRemove) return false;
+        return true;
+      });
+      persistPlan(next);
+      return next;
+    });
+    toast({ title: 'Silindi', description: 'Bağlı etiketler ve obje silindi.' });
+  }
+
   const addEmptyDesk = () => {
     pushHistory();
-    setObjects((prev) => [...prev, { id: uuidv4(), type: 'empty_desk', x: 965, y: 965 }])
+    const deskId = uuidv4();
+    setObjects((prev) => [
+      ...prev, 
+      { id: deskId, type: 'empty_desk', x: 965, y: 965, pcNo: '', eskiPcNolari: [] },
+      { id: uuidv4(), type: 'pc_label', pcNo: '', linkedStudentId: deskId, x: 935, y: 953 }
+    ])
   }
 
   const addEmptyObject = () => {
@@ -880,10 +923,11 @@ export function SeatingPlanPage() {
       }
     });
 
-    // Student ID -> Object Map for linked labels
+    // Student ID / Desk ID -> Object Map for linked labels
     const studentIdToObjMap = new Map<string, SeatObject>();
     objs.forEach(o => {
       if (o.type === 'student' && o.studentId) studentIdToObjMap.set(o.studentId, o);
+      if (o.type === 'empty_desk') studentIdToObjMap.set(o.id, o);
     });
 
     return objs.map(obj => {
@@ -938,25 +982,26 @@ export function SeatingPlanPage() {
       const movingIds = new Set<string>();
 
       if (isGroupDrag) {
-        // Seçili öğrencilerin DATABASE ID'lerini topla
-        const selectedStudentDBIds = new Set<string>();
+        // Seçili öğrencilerin veya masaların IDsini topla
+        const selectedTargetIds = new Set<string>();
         selectedIds.forEach(sid => {
-          const sObj = prev.find(o => o.id === sid && o.type === 'student');
-          if (sObj?.studentId) selectedStudentDBIds.add(sObj.studentId);
+          const sObj = prev.find(o => o.id === sid && (o.type === 'student' || o.type === 'empty_desk'));
+          if (sObj) selectedTargetIds.add(sObj.type === 'student' ? sObj.studentId! : sObj.id);
         });
         selectedIds.forEach(id => movingIds.add(id));
-        // Bu öğrencilere bağlı PC etiketlerini de hareket grubuna dahil et
+        // Bu hedeflere bağlı PC etiketlerini de sürükle
         prev.forEach(o => {
-          if (o.type === 'pc_label' && o.linkedStudentId && selectedStudentDBIds.has(o.linkedStudentId)) {
+          if (o.type === 'pc_label' && o.linkedStudentId && selectedTargetIds.has(o.linkedStudentId)) {
             movingIds.add(o.id);
           }
         });
       } else {
         movingIds.add(activeObj.id);
-        // Tekli sürüklemede de: bu öğrenciye bağlı pc_label'ı birlikte taşı
-        if (activeObj.type === 'student' && activeObj.studentId) {
+        // Tekli sürüklemede de: bu nesneye bağlı pc_label'ı birlikte taşı
+        if (activeObj.type === 'student' || activeObj.type === 'empty_desk') {
+          const checkId = activeObj.type === 'student' ? activeObj.studentId : activeObj.id;
           prev.forEach(o => {
-            if (o.type === 'pc_label' && o.linkedStudentId === activeObj.studentId) {
+            if (o.type === 'pc_label' && o.linkedStudentId === checkId) {
               movingIds.add(o.id);
             }
           });
@@ -1315,18 +1360,18 @@ export function SeatingPlanPage() {
                         <div id="guide-y" className="absolute left-0 right-0 h-[2px] bg-primary/40 -translate-y-1/2 shadow-sm z-40 pointer-events-none" style={{ display: 'none' }} />
 
                         {(() => {
-                          // Grup sürüklemede, hangi öğrencilerin seçili olduğunu bul
-                          const selectedStudentDBIds = new Set<string>();
+                          // Grup sürüklemede, hangi öğrencilerin veya sıraların seçili olduğunu bul
+                          const selectedTargetIds = new Set<string>();
                           selectedIds.forEach(sid => {
-                            const sObj = objects.find(o => o.id === sid && o.type === 'student');
-                            if (sObj?.studentId) selectedStudentDBIds.add(sObj.studentId);
+                            const sObj = objects.find(o => o.id === sid && (o.type === 'student' || o.type === 'empty_desk'));
+                            if (sObj) selectedTargetIds.add(sObj.type === 'student' ? sObj.studentId! : sObj.id);
                           });
 
-                          // Tekli sürüklemede aktif öğrenci
+                          // Tekli sürüklemede aktif obje
                           const activeUUID = activeId?.replace('canvas_', '');
                           const isMainDraggingSelected = !!(activeId !== null && isSelectionMode && activeUUID && selectedIds.includes(activeUUID));
-                          const draggingStudentObj = activeId && !isMainDraggingSelected
-                            ? objects.find(o => `canvas_${o.id}` === activeId && o.type === 'student')
+                          const draggingNodeObj = activeId && !isMainDraggingSelected
+                            ? objects.find(o => `canvas_${o.id}` === activeId && (o.type === 'student' || o.type === 'empty_desk'))
                             : null;
 
                           return objects.map((obj) => {
@@ -1336,20 +1381,34 @@ export function SeatingPlanPage() {
                               // Grup taşıma: seçili objeler veya bağlı pc_label'lar takip eder
                               isFollowerDrag = selectedIds.includes(obj.id) && `canvas_${obj.id}` !== activeId;
                               if (!isFollowerDrag && obj.type === 'pc_label' && obj.linkedStudentId) {
-                                if (selectedStudentDBIds.has(obj.linkedStudentId)) isFollowerDrag = true;
+                                if (selectedTargetIds.has(obj.linkedStudentId)) isFollowerDrag = true;
                               }
-                            } else if (draggingStudentObj && obj.type === 'pc_label') {
-                              // Tekli taşıma: öğrenciye bağlı pc_label takip eder
-                              if (obj.linkedStudentId === draggingStudentObj.studentId) isFollowerDrag = true;
+                            } else if (draggingNodeObj && obj.type === 'pc_label') {
+                              // Tekli taşıma: objeye bağlı pc_label takip eder
+                              const tgId = draggingNodeObj.type === 'student' ? draggingNodeObj.studentId : draggingNodeObj.id;
+                              if (obj.linkedStudentId === tgId) isFollowerDrag = true;
+                            }
+
+                            let mockStudent = undefined;
+                            if (obj.type === 'student') {
+                              mockStudent = students.find(s => s.id === obj.studentId);
+                            } else if (obj.type === 'empty_desk') {
+                              mockStudent = { id: obj.id, adSoyad: 'Boş Sıra', no: '', pcNo: obj.pcNo || '', eskiPcNolari: obj.eskiPcNolari || [] };
                             }
 
                             return (
                               <DraggableItem
                                 key={obj.id}
                                 item={obj}
-                                student={obj.type === 'student' ? students.find(s => s.id === obj.studentId) : undefined}
+                                student={mockStudent}
                                 studentsList={students}
-                                updateStudentData={updateStudent}
+                                updateStudentData={async (id, data) => {
+                                  if (obj.type === 'empty_desk') {
+                                    updateEmptyDeskInfo(id, data);
+                                  } else {
+                                    await updateStudent(id, data);
+                                  }
+                                }}
                                 isSelectionMode={isSelectionMode}
                                 isSelected={selectedIds.includes(obj.id)}
                                 isFollowerDrag={isFollowerDrag}
@@ -1365,6 +1424,7 @@ export function SeatingPlanPage() {
                                     prev.includes(obj.id) ? prev.filter(id => id !== obj.id) : [...prev, obj.id]
                                   )
                                 }}
+                                onRemove={handleRemoveObject}
                               />
                             )
                           })
