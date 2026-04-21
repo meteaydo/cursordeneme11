@@ -31,6 +31,8 @@ import { parseClassTemplate, fetchClassList } from '@/services/classTemplateServ
 
 const EMPTY_STUDENT: StudentFormData = {
   no: '', adSoyad: '', pcNo: '', eskiPcNolari: [], ozelDurumNotlari: '', foto: '',
+  behaviorStars: { yellow: 0, purple: 0 },
+  behaviorLogs: [],
 }
 
 export default function CourseDetailPage() {
@@ -407,6 +409,8 @@ export default function CourseDetailPage() {
           eskiPcNolari: [],
           ozelDurumNotlari: '',
           foto: finalFotoUrl,
+          behaviorStars: { yellow: 0, purple: 0 },
+          behaviorLogs: [],
         })
       })
 

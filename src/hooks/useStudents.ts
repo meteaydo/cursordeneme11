@@ -128,14 +128,22 @@ export function useStudents(courseId: string) {
     }
     if (photoUrls && photoUrls.length > 0) {
       log.photoUrls = photoUrls
-      log.photoUrl = photoUrls[0] // for backwards compatibility if needed
+      log.photoUrl = photoUrls[0]
     }
     
     const studentRef = doc(db, 'courses', courseId, 'students', studentId)
+    
+    // Firestore increment nested field creates the path if it doesn't exist.
+    // However, to be absolutely safe and ensure the structure is correct:
     await updateDoc(studentRef, {
       [`behaviorStars.${type}`]: increment(1),
       behaviorLogs: arrayUnion(log)
-    }).catch(console.error)
+    }).catch(async (error) => {
+      // If behaviorStars field doesn't exist at all, some older environments might fail.
+      // Although modern Firestore handles this, let's add a fallback if needed.
+      console.error('addBehaviorStar error:', error)
+      throw error
+    })
   }
 
   const deleteBehaviorLog = async (studentId: string, log: any) => {

@@ -100,8 +100,15 @@ export default function StudentProfilePage() {
   // Determine behavior type based on selected note
   const getBehaviorType = (note: string): 'yellow' | 'purple' | null => {
     if (!note) return null
-    const option = behaviorOptions.find(opt => opt.label === note)
-    if (!option) return null // custom entry, unknown
+    const trimmedNote = note.trim().toLocaleLowerCase('tr-TR')
+    
+    // Exact match or partial match (ignoring prefixes like "5) ")
+    const option = behaviorOptions.find(opt => {
+      const label = opt.label.trim().toLocaleLowerCase('tr-TR')
+      return label === trimmedNote || label.includes(trimmedNote) || trimmedNote.includes(label)
+    })
+    
+    if (!option) return null
     return option.color === 'green' ? 'yellow' : 'purple'
   }
 
@@ -310,16 +317,20 @@ export default function StudentProfilePage() {
 
     setBehaviorSaving(true)
     
-    // Type belirlenmesi: 
-    // 1. forcedType (butonla basıldıysa)
-    // 2. getBehaviorType (listedeyse)
-    // 3. 'yellow' (listedışı manuel giriş butona basılmadıysa enter vs ise)
     let determinedType: 'yellow' | 'purple' = 'yellow'
+    
+    // Eğer butonla zorlanmışsa onu al
     if (forcedType) {
       determinedType = forcedType
     } else {
+      // Değilse listeden bulmaya çalış
       const detectedType = getBehaviorType(noteToSave)
-      if (detectedType) determinedType = detectedType
+      if (detectedType) {
+        determinedType = detectedType
+      } else {
+        // Liste dışı manuel giriş ve butonla seçilmemişse varsayılan yellow
+        determinedType = 'yellow'
+      }
     }
 
     try {
@@ -554,8 +565,8 @@ export default function StudentProfilePage() {
                     </span>
                   )}
                   {(student.behaviorStars?.purple ?? 0) > 0 && (
-                    <span className="inline-flex items-center gap-0.5 text-[11px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-full border border-purple-200">
-                      <StarOff className="w-3.5 h-3.5 text-purple-500" />
+                    <span className="inline-flex items-center gap-0.5 text-[11px] font-bold text-purple-600 bg-purple-50 px-1.5 py-0.5 rounded-full border border-purple-200 shadow-sm">
+                      <Star className="w-3.5 h-3.5 fill-purple-400 text-purple-500" />
                       x{student.behaviorStars!.purple}
                     </span>
                   )}
@@ -795,7 +806,7 @@ export default function StudentProfilePage() {
                       {log.type === 'yellow' ? (
                         <Star className="w-4 h-4 mt-0.5 shrink-0 fill-yellow-400 text-yellow-500" />
                       ) : (
-                        <StarOff className="w-4 h-4 mt-0.5 shrink-0 text-purple-500" />
+                        <Star className="w-4 h-4 mt-0.5 shrink-0 fill-purple-400 text-purple-500" />
                       )}
                       <div className="flex-1 min-w-0">
                         <p className="text-[10px] text-muted-foreground">{format(new Date(log.date), 'dd MMM HH:mm', { locale: tr })}</p>
