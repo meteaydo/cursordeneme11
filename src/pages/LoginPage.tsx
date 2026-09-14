@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -13,7 +13,7 @@ type Mode = 'login' | 'register'
 
 export default function LoginPage() {
   const navigate = useNavigate()
-  const { signIn, signUp, signInWithGoogle } = useAuth()
+  const { user, signIn, signUp, signInWithGoogle } = useAuth()
   const [mode, setMode] = useState<Mode>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -24,6 +24,10 @@ export default function LoginPage() {
   // Get last line of version.md
   const versionLines = versionRaw.trim().split('\n')
   const lastVersion = versionLines[versionLines.length - 1]
+
+  useEffect(() => {
+    if (user) navigate('/courses', { replace: true })
+  }, [user, navigate])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

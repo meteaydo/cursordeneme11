@@ -5,11 +5,31 @@ import {
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   updateProfile,
 } from 'firebase/auth'
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db, googleProvider } from '@/lib/firebase'
+
+function isPopupFailure(err: unknown): boolean {
+  const code = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : ''
+  return (
+    code === 'auth/popup-blocked' ||
+    code === 'auth/popup-closed-by-user' ||
+    code === 'auth/cancelled-popup-request' ||
+    code === 'auth/internal-error'
+  )
+}
+
+async function saveUserToFirestore(u: User) {
+  await setDoc(
+    doc(db, 'users', u.uid),
+    { email: u.email, displayName: u.displayName, updatedAt: serverTimestamp() },
+    { merge: true },
+  )
+}
 
 interface AuthContextType {
   user: User | null
@@ -27,20 +47,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) return saveUserToFirestore(result.user)
+      })
+      .catch(() => undefined)
+
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u)
       setLoading(false)
     })
     return unsubscribe
   }, [])
-
-  const saveUserToFirestore = async (u: User) => {
-    await setDoc(
-      doc(db, 'users', u.uid),
-      { email: u.email, displayName: u.displayName, updatedAt: serverTimestamp() },
-      { merge: true },
-    )
-  }
 
   const signIn = async (email: string, password: string) => {
     await signInWithEmailAndPassword(auth, email, password)
@@ -53,8 +71,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   const signInWithGoogle = async () => {
-    const cred = await signInWithPopup(auth, googleProvider)
-    await saveUserToFirestore(cred.user)
+    try {
+      const cred = await signInWithPopup(auth, googleProvider)
+      await saveUserToFirestore(cred.user)
+    } catch (err) {
+      if (!isPopupFailure(err)) throw err
+      await signInWithRedirect(auth, googleProvider)
+    }
   }
 
   const logout = async () => {
