@@ -456,7 +456,7 @@ export default function StudentProfilePage() {
 
   if (!student || !form) {
     return (
-      <Layout title="Öğrenci Profili" showBack backTitle="Geri" showLogout={false}>
+      <Layout title="Öğrenci Profili" showBack backTitle="Geri">
         <div className="flex justify-center py-16">
           <Loader2 className="h-8 w-8 animate-spin text-primary" />
         </div>
@@ -465,7 +465,7 @@ export default function StudentProfilePage() {
   }
 
   return (
-    <Layout title="Öğrenci Profili" showBack backTitle={course?.dersAdi || 'Ders Detayı'} showLogout={false}>
+    <Layout title="Öğrenci Profili" showBack backTitle={course?.dersAdi || 'Ders Detayı'}>
       {autoSaveStatus !== 'idle' && (
         <div className="fixed top-4 right-4 z-50 pointer-events-none">
           {autoSaveStatus === 'saving' && (

@@ -1,13 +1,10 @@
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, LogOut } from 'lucide-react'
-import { Button } from '@/components/ui/button'
-import { useAuth } from '@/contexts/AuthContext'
+import { ArrowLeft } from 'lucide-react'
 
 export interface HeaderProps {
   title?: string | React.ReactNode
   showBack?: boolean
   backTo?: string
-  showLogout?: boolean
   rightAction?: React.ReactNode
   hideTitleOnDesktop?: boolean
   leftExtra?: React.ReactNode
@@ -19,7 +16,6 @@ export function Header({
   title, 
   showBack = false, 
   backTo, 
-  showLogout = true, 
   rightAction,
   hideTitleOnDesktop = false,
   leftExtra,
@@ -27,7 +23,6 @@ export function Header({
   onBackClick
 }: HeaderProps) {
   const navigate = useNavigate()
-  const { logout, user } = useAuth()
 
   const handleBack = () => {
     if (onBackClick) {
@@ -51,12 +46,6 @@ export function Header({
                 </span>
               )}
             </button>
-          )}
-          {user && showLogout && (
-            <Button variant="ghost" onClick={logout} title="Çıkış yap" className="text-slate-500 px-2 h-9 gap-1.5 -ml-2">
-              <LogOut className="h-4 w-4 -rotate-90" />
-              <span className="text-xs font-medium">Çıkış</span>
-            </Button>
           )}
           {leftExtra && (
             <div className="hidden md:block ml-1">

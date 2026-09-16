@@ -7,6 +7,9 @@ import CoursesPage from '@/pages/CoursesPage'
 import CourseDetailPage from '@/pages/CourseDetailPage'
 import StudentProfilePage from '@/pages/StudentProfilePage'
 import { SeatingPlanPage } from '@/pages/SeatingPlanPage'
+import ClassesPage from '@/pages/ClassesPage'
+import SchoolListsPage from '@/pages/SchoolListsPage'
+import ClassDetailPage from '@/pages/ClassDetailPage'
 import PWABadge from '@/components/PWABadge'
 
 export default function App() {
@@ -44,6 +47,38 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <StudentProfilePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/classes"
+            element={
+              <ProtectedRoute>
+                <ClassesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/classes/:sinifAdi"
+            element={
+              <ProtectedRoute>
+                <ClassDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/school-lists"
+            element={
+              <ProtectedRoute>
+                <SchoolListsPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/school-lists/:sinifAdi"
+            element={
+              <ProtectedRoute>
+                <ClassDetailPage />
               </ProtectedRoute>
             }
           />

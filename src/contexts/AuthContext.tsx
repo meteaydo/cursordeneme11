@@ -13,14 +13,13 @@ import {
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db, googleProvider } from '@/lib/firebase'
 
-function isPopupFailure(err: unknown): boolean {
-  const code = err && typeof err === 'object' && 'code' in err ? String((err as { code: unknown }).code) : ''
-  return (
-    code === 'auth/popup-blocked' ||
-    code === 'auth/popup-closed-by-user' ||
-    code === 'auth/cancelled-popup-request' ||
-    code === 'auth/internal-error'
-  )
+function firebaseErrorMessage(err: unknown): string {
+  if (err && typeof err === 'object' && 'code' in err) {
+    const code = String((err as { code: unknown }).code)
+    const message = 'message' in err ? String((err as { message: unknown }).message) : ''
+    return `${code}${message ? `: ${message}` : ''}`
+  }
+  return err instanceof Error ? err.message : 'Google ile giriş başarısız.'
 }
 
 async function saveUserToFirestore(u: User) {
@@ -51,7 +50,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .then((result) => {
         if (result?.user) return saveUserToFirestore(result.user)
       })
-      .catch(() => undefined)
+      .catch((err) => {
+        console.error('Google redirect sonucu:', firebaseErrorMessage(err))
+      })
 
     const unsubscribe = onAuthStateChanged(auth, (u) => {
       setUser(u)
@@ -72,11 +73,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = async () => {
     try {
-      const cred = await signInWithPopup(auth, googleProvider)
-      await saveUserToFirestore(cred.user)
-    } catch (err) {
-      if (!isPopupFailure(err)) throw err
       await signInWithRedirect(auth, googleProvider)
+    } catch (err) {
+      console.error('Google redirect başarısız:', firebaseErrorMessage(err))
+      try {
+        const cred = await signInWithPopup(auth, googleProvider)
+        await saveUserToFirestore(cred.user)
+      } catch (popupErr) {
+        console.error('Google popup başarısız:', firebaseErrorMessage(popupErr))
+        throw popupErr
+      }
     }
   }
 

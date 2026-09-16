@@ -15,6 +15,7 @@ export interface Course {
   teacherId: string
   dersAdi: string
   sinifAdi: string
+  classId?: string
   sinifMevcudu: number
   createdAt: Date
   seatingPlan?: string; // JSON.stringify(SeatObject[]) şeklinde tutulacak
@@ -71,7 +72,27 @@ export interface Score {
 export interface CourseFormData {
   dersAdi: string
   sinifAdi: string
+  classId?: string
   sinifMevcudu: number
+}
+
+export interface SchoolClass {
+  id: string
+  teacherId: string
+  ad: string
+  yil: string
+  studentCount: number
+  createdAt: Date
+}
+
+export interface ClassStudent {
+  id: string
+  classId: string
+  no: string
+  adSoyad: string
+  foto?: string
+  pcNo: string
+  createdAt: Date
 }
 
 export interface StudentFormData {

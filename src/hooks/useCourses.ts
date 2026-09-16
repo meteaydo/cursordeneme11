@@ -50,11 +50,15 @@ export function useCourses() {
   const addCourse = async (data: CourseFormData) => {
     if (!user) return
     const docRef = doc(collection(db, 'courses'))
-    setDoc(docRef, {
-      ...data,
+    const payload: Record<string, unknown> = {
+      dersAdi: data.dersAdi,
+      sinifAdi: data.sinifAdi,
+      sinifMevcudu: data.sinifMevcudu || 0,
       teacherId: user.uid,
       createdAt: serverTimestamp(),
-    }).catch(console.error)
+    }
+    if (data.classId) payload.classId = data.classId
+    setDoc(docRef, payload).catch(console.error)
     return docRef.id
   }
 

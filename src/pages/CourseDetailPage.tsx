@@ -737,7 +737,7 @@ export default function CourseDetailPage() {
   }
 
   return (
-    <Layout title={pageTitle} showBack backTo="/courses" backTitle="Dersler" showLogout={false}>
+    <Layout title={pageTitle} showBack backTo="/courses" backTitle="Dersler">
       {excelParsing && (
         <div className="fixed inset-0 z-[600] bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center p-4">
           <div className="bg-card text-card-foreground p-6 rounded-2xl shadow-xl flex flex-col items-center max-w-sm w-full text-center space-y-4 border border-border">

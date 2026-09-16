@@ -66,9 +66,15 @@ export default function LoginPage() {
     setLoading(true)
     try {
       await signInWithGoogle()
-      navigate('/courses')
-    } catch {
-      setError('Google ile giriş başarısız.')
+    } catch (err: unknown) {
+      const msg =
+        err && typeof err === 'object' && 'code' in err
+          ? `${String((err as { code: unknown }).code)}: ${err instanceof Error ? err.message : 'Google ile giriş başarısız.'}`
+          : err instanceof Error
+            ? err.message
+            : 'Google ile giriş başarısız.'
+      console.error('Google giriş hatası:', err)
+      setError(msg)
     } finally {
       setLoading(false)
     }

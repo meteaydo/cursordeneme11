@@ -22,3 +22,30 @@ export function formatTitleCase(str: string): string {
 export function formatClassName(str: string): string {
   return str.replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
 }
+
+const CLASS_COLORS = [
+  'border-l-red-500',
+  'border-l-orange-500',
+  'border-l-amber-500',
+  'border-l-green-500',
+  'border-l-emerald-500',
+  'border-l-teal-500',
+  'border-l-cyan-500',
+  'border-l-sky-500',
+  'border-l-blue-500',
+  'border-l-indigo-500',
+  'border-l-violet-500',
+  'border-l-purple-500',
+  'border-l-fuchsia-500',
+  'border-l-pink-500',
+  'border-l-rose-500',
+]
+
+export function getClassColor(className: string) {
+  if (!className) return 'border-l-primary'
+  let hash = 0
+  for (let i = 0; i < className.length; i++) {
+    hash = className.charCodeAt(i) + ((hash << 5) - hash)
+  }
+  return CLASS_COLORS[Math.abs(hash) % CLASS_COLORS.length]
+}

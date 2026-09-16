@@ -1163,7 +1163,7 @@ export function SeatingPlanPage() {
   // Sayfa yükleniyorsa
   if (courseLoading || studentsLoading) {
     return (
-      <Layout title="Oturma Planı Yükleniyor" showBack backTitle="Liste Görünümü" showLogout={false}>
+      <Layout title="Oturma Planı Yükleniyor" showBack backTitle="Liste Görünümü">
         <div className="flex h-[60vh] items-center justify-center">
           <Loader2 className="w-10 h-10 animate-spin text-primary" />
         </div>
@@ -1186,7 +1186,6 @@ export function SeatingPlanPage() {
       }
       showBack 
       backTitle="Liste Görünümü"
-      showLogout={false}
       hideTitleOnDesktop={true}
       onBackClick={handleBackNavigation}
       leftExtra={
