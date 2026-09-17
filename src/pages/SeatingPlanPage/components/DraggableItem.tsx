@@ -12,6 +12,9 @@ import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { toast } from '@/hooks/use-toast'
 import { formatClassName } from '@/lib/utils'
 
+type PcLabelSideOption = 'left' | 'right' | 'bottom'
+const CONTEXT_MENU_LONG_PRESS_MS = 550
+
 interface DraggableItemProps {
   item: SeatObject
   student?: { id: string; adSoyad: string; no: string; foto?: string; pcNo?: string; eskiPcNolari?: string[] }
@@ -20,7 +23,11 @@ interface DraggableItemProps {
   isSelectionMode?: boolean
   isSelected?: boolean
   isFollowerDrag?: boolean
-  pcLabelSide?: 'left' | 'right' | 'bottom'
+  pcLabelSide?: PcLabelSideOption
+  showPcLabelDirectionMenu?: boolean
+  pcLabelSideOverride?: PcLabelSideOption
+  onSetPcLabelSide?: (side: PcLabelSideOption | null) => void
+  onRemoveFromPlan?: () => void
   onSelectionToggle?: () => void
   activeApplicationId?: string | null
   score?: Score
@@ -34,12 +41,16 @@ interface DraggableItemProps {
 export function DraggableItem({
   item, student, studentsList, updateStudentData, isSelectionMode, isSelected, isFollowerDrag,
   onSelectionToggle, onRemove, pcLabelSide,
+  showPcLabelDirectionMenu, pcLabelSideOverride, onSetPcLabelSide, onRemoveFromPlan,
   activeApplicationId, score, onNumpadOpen, onDevamsizToggle, onCameraOpen, onFileUpload
 }: DraggableItemProps) {
   const [isExpanded, setIsExpanded] = useState(false)
+  const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
   const navigate = useNavigate()
   const { courseId } = useParams()
   const longPressTimer = useRef<NodeJS.Timeout | null>(null)
+  const suppressClickRef = useRef(false)
+  const isDeskCard = item.type === 'student' || item.type === 'empty_desk'
 
   const isPcLabel = item.type === 'pc_label';
   const isStudent = item.type === 'student' || item.type === 'empty_desk';
@@ -77,31 +88,48 @@ export function DraggableItem({
     opacity: isFollowerDrag ? 0.9 : 1,
   }
 
-  const clickStartRef = React.useRef<{x: number, y: number, time: number} | null>(null)
+  const clickStartRef = React.useRef<{ x: number; y: number; time: number; pointerType: string } | null>(null)
+
+  const openContextMenu = useCallback((clientX: number, clientY: number) => {
+    if (!isDeskCard) return
+    suppressClickRef.current = true
+    setIsExpanded(false)
+    setContextMenu({ x: clientX, y: clientY })
+    try {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) {
+        navigator.vibrate(30)
+      }
+    } catch { /* ignore */ }
+  }, [isDeskCard])
+
+  const closeContextMenu = useCallback(() => setContextMenu(null), [])
+
+  const handleContextMenu = (e: React.MouseEvent) => {
+    if (!isDeskCard || isExpanded) return
+    e.preventDefault()
+    e.stopPropagation()
+    openContextMenu(e.clientX, e.clientY)
+  }
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    // Çoklu dokunuş varsa (zoom ihtimali) hiçbir işlemi başlatma
-    if (e.pointerType === 'touch' && (e.nativeEvent as any).touches?.length > 1) {
+    if (e.pointerType === 'touch' && (e.nativeEvent as TouchEvent).touches?.length > 1) {
       return
     }
-    clickStartRef.current = { x: e.clientX, y: e.clientY, time: Date.now() }
-    
-    // 1.5 saniye basılı tutma timer'ını başlat (Seçim moduna girmek için)
-    if (!isExpanded && (item.type === 'student' || item.type === 'empty_desk') && !isSelectionMode) {
+    if (e.pointerType === 'mouse' && e.button !== 0) {
+      return
+    }
+    clickStartRef.current = {
+      x: e.clientX,
+      y: e.clientY,
+      time: Date.now(),
+      pointerType: e.pointerType,
+    }
+
+    if (!isExpanded && isDeskCard && !isSelectionMode && e.pointerType === 'touch') {
       longPressTimer.current = setTimeout(() => {
-        if (onSelectionToggle) {
-          onSelectionToggle()
-          // Haptic Feedback (Sadece gerçekten aktifse ve destekleniyorsa)
-          try {
-            if (typeof navigator !== 'undefined' && navigator.vibrate) {
-              // @ts-ignore - navigator.userActivation modern tarayıcılarda vardır
-              if (!navigator.userActivation || navigator.userActivation.isActive) {
-                navigator.vibrate(50);
-              }
-            }
-          } catch (e) { /* ignore */ }
-        }
-      }, 1500)
+        if (!clickStartRef.current) return
+        openContextMenu(clickStartRef.current.x, clickStartRef.current.y)
+      }, CONTEXT_MENU_LONG_PRESS_MS)
     }
 
     if (!isExpanded && listeners?.onPointerDown) {
@@ -114,18 +142,23 @@ export function DraggableItem({
       clearTimeout(longPressTimer.current)
       longPressTimer.current = null
     }
-    
-    if (!clickStartRef.current || isDragging || (item.type !== 'student' && item.type !== 'empty_desk')) return
+
+    if (suppressClickRef.current) {
+      suppressClickRef.current = false
+      clickStartRef.current = null
+      return
+    }
+
+    if (!clickStartRef.current || isDragging || !isDeskCard) return
     const dx = Math.abs(e.clientX - clickStartRef.current.x)
     const dy = Math.abs(e.clientY - clickStartRef.current.y)
     const dt = Date.now() - clickStartRef.current.time
-    
-    // Eğer 1.5 saniyeyi doldurmadan bıraktıysa ve hareket etmediyse tıklama işlemi
-    if (dx < 10 && dy < 10 && dt < 1500) {
-      if (dt < 450) { // Kısa tıklama
+
+    if (dx < 10 && dy < 10 && dt < CONTEXT_MENU_LONG_PRESS_MS) {
+      if (dt < 450) {
         e.stopPropagation()
         if (isSelectionMode) {
-          if (onSelectionToggle) onSelectionToggle()
+          onSelectionToggle?.()
         } else {
           setTimeout(() => {
             setIsExpanded(p => !p)
@@ -134,6 +167,16 @@ export function DraggableItem({
       }
     }
     clickStartRef.current = null
+  }
+
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!longPressTimer.current || !clickStartRef.current) return
+    const dx = Math.abs(e.clientX - clickStartRef.current.x)
+    const dy = Math.abs(e.clientY - clickStartRef.current.y)
+    if (dx > 10 || dy > 10) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
   }
 
   const handleGoToProfile = useCallback(() => {
@@ -167,6 +210,8 @@ export function DraggableItem({
           {...(isExpanded || isPcLabel ? {} : attributes)}
           onPointerDown={isPcLabel ? undefined : handlePointerDown}
           onPointerUp={isPcLabel ? undefined : handlePointerUp}
+          onPointerMove={isPcLabel ? undefined : handlePointerMove}
+          onContextMenu={isPcLabel ? undefined : handleContextMenu}
           className={`absolute inset-0 ${isExpanded || isPcLabel ? 'cursor-default' : (isSelectionMode ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing')}`}
         >
           <SmallCard
@@ -200,6 +245,113 @@ export function DraggableItem({
         />,
         document.body
       )}
+
+      {contextMenu && isDeskCard && createPortal(
+        <DeskContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          showLabelDirections={!!showPcLabelDirectionMenu}
+          overrideSide={pcLabelSideOverride}
+          onPickSide={(side) => {
+            onSetPcLabelSide?.(side)
+            closeContextMenu()
+          }}
+          onRemove={() => {
+            onRemoveFromPlan?.()
+            closeContextMenu()
+          }}
+          onClose={closeContextMenu}
+        />,
+        document.body
+      )}
+    </>
+  )
+}
+
+interface DeskContextMenuProps {
+  x: number
+  y: number
+  showLabelDirections: boolean
+  overrideSide?: PcLabelSideOption
+  onPickSide: (side: PcLabelSideOption | null) => void
+  onRemove: () => void
+  onClose: () => void
+}
+
+function DeskContextMenu({
+  x, y, showLabelDirections, overrideSide, onPickSide, onRemove, onClose,
+}: DeskContextMenuProps) {
+  const menuRef = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState({ x, y })
+
+  useEffect(() => {
+    const el = menuRef.current
+    if (!el) {
+      setPos({ x, y })
+      return
+    }
+    const rect = el.getBoundingClientRect()
+    const pad = 8
+    let nextX = x
+    let nextY = y
+    if (nextX + rect.width > window.innerWidth - pad) nextX = window.innerWidth - rect.width - pad
+    if (nextY + rect.height > window.innerHeight - pad) nextY = window.innerHeight - rect.height - pad
+    if (nextX < pad) nextX = pad
+    if (nextY < pad) nextY = pad
+    setPos({ x: nextX, y: nextY })
+  }, [x, y])
+
+  const directionOptions: { id: PcLabelSideOption | 'auto'; label: string }[] = [
+    { id: 'auto', label: 'Otomatik' },
+    { id: 'left', label: 'Sol' },
+    { id: 'right', label: 'Sağ' },
+    { id: 'bottom', label: 'Alt' },
+  ]
+
+  const isActive = (id: PcLabelSideOption | 'auto') => {
+    if (id === 'auto') return !overrideSide
+    return overrideSide === id
+  }
+
+  return (
+    <>
+      <div className="fixed inset-0 z-[250]" onPointerDown={onClose} />
+      <div
+        ref={menuRef}
+        className="fixed z-[260] min-w-[188px] rounded-xl border border-slate-200 bg-white shadow-2xl py-1.5 animate-in fade-in zoom-in-95 duration-150"
+        style={{ left: pos.x, top: pos.y }}
+        onContextMenu={(e) => e.preventDefault()}
+      >
+        {showLabelDirections && (
+          <>
+            <div className="px-3 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              Etiket yönü
+            </div>
+            {directionOptions.map((opt) => (
+              <button
+                key={opt.id}
+                type="button"
+                className={`w-full text-left px-3 py-2 text-sm hover:bg-slate-50 flex items-center justify-between gap-3 ${
+                  isActive(opt.id) ? 'text-primary font-semibold' : 'text-slate-700'
+                }`}
+                onClick={() => onPickSide(opt.id === 'auto' ? null : opt.id)}
+              >
+                <span>{opt.label}</span>
+                {isActive(opt.id) && <Check className="w-4 h-4 shrink-0" />}
+              </button>
+            ))}
+            <div className="my-1 h-px bg-slate-100" />
+          </>
+        )}
+        <button
+          type="button"
+          className="w-full text-left px-3 py-2 text-sm font-semibold text-red-600 hover:bg-red-50 flex items-center gap-2"
+          onClick={onRemove}
+        >
+          <Trash2 className="w-4 h-4" />
+          Sil
+        </button>
+      </div>
     </>
   )
 }

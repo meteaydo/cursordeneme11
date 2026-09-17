@@ -59,6 +59,11 @@ function getLabDesks(objs: SeatObject[]): SeatObject[] {
   return objs.filter((o) => o.type === 'student' || o.type === 'empty_desk')
 }
 
+function resolvePcLabelSide(desk: SeatObject, desks: SeatObject[]): PcLabelSide {
+  if (desk.pcLabelSideOverride) return desk.pcLabelSideOverride
+  return classifyPcLabelSide(desk, desks)
+}
+
 function classifyPcLabelSide(desk: { x: number; y: number }, desks: { x: number; y: number }[]): PcLabelSide {
   if (desks.length === 0) return 'right'
   const xs = desks.map((d) => d.x)
@@ -823,7 +828,7 @@ export function SeatingPlanPage() {
       const spot = spots[i]
       const pcNo = String(i + 1)
       const tempTargetObj = { x: spot.x, y: spot.y, type: 'student' } as SeatObject
-      const pcPos = getPcLabelPosition(tempTargetObj, classifyPcLabelSide(tempTargetObj, deskStubs))
+      const pcPos = getPcLabelPosition(tempTargetObj, resolvePcLabelSide(tempTargetObj, deskStubs))
       const deskId = uuidv4()
       const isStudent = i < sortedStudents.length
 
@@ -1025,18 +1030,51 @@ export function SeatingPlanPage() {
   }
 
   const handleRemoveObject = (idToRemove: string) => {
+    const deskObj = objects.find(o => o.id === idToRemove);
+    if (deskObj && (deskObj.type === 'student' || deskObj.type === 'empty_desk')) {
+      handleRemoveDeskFromPlan(deskObj);
+      return;
+    }
+    pushHistory();
+    setObjects(prev => {
+      const next = prev.filter(o => o.id !== idToRemove);
+      persistPlan(next);
+      return next;
+    });
+    toast({ title: 'Silindi', description: 'Obje silindi.' });
+  }
+
+  const handleRemoveDeskFromPlan = (deskObj: SeatObject) => {
+    const linkId = deskObj.type === 'student' ? deskObj.studentId : deskObj.id;
     pushHistory();
     setObjects(prev => {
       const next = prev.filter(o => {
-        if (o.id === idToRemove) return false;
-        if (o.type === 'pc_label' && o.linkedStudentId === idToRemove) return false;
+        if (o.id === deskObj.id) return false;
+        if (o.type === 'pc_label' && linkId && o.linkedStudentId === linkId) return false;
         return true;
       });
       persistPlan(next);
       return next;
     });
-    toast({ title: 'Silindi', description: 'Bağlı etiketler ve obje silindi.' });
-  }
+    toast({ title: 'Silindi', description: 'Kart ve PC etiketi plandan kaldırıldı.' });
+  };
+
+  const handleSetPcLabelSide = (deskObjectId: string, side: PcLabelSide | null) => {
+    pushHistory();
+    setObjects(prev => {
+      const next = prev.map(o => {
+        if (o.id !== deskObjectId) return o;
+        if (!side) {
+          const { pcLabelSideOverride: _removed, ...rest } = o;
+          return rest;
+        }
+        return { ...o, pcLabelSideOverride: side };
+      });
+      const snapped = snapPcLabelsToEdges(next);
+      persistPlan(snapped);
+      return snapped;
+    });
+  };
 
   const addEmptyDesk = () => {
     pushHistory();
@@ -1110,7 +1148,7 @@ export function SeatingPlanPage() {
 
   const getPcSnapPosition = (targetObj: SeatObject, allObjs?: SeatObject[]): { x: number; y: number } => {
     const desks = getLabDesks(allObjs ?? objects)
-    const side = classifyPcLabelSide(targetObj, desks.length > 0 ? desks : [targetObj])
+    const side = resolvePcLabelSide(targetObj, desks.length > 0 ? desks : [targetObj])
     return getPcLabelPosition(targetObj, side)
   }
 
@@ -1621,10 +1659,12 @@ export function SeatingPlanPage() {
                             let pcLabelSide: PcLabelSide | undefined
                             if (obj.type === 'pc_label' && obj.linkedStudentId) {
                               const target = deskByLinkId.get(obj.linkedStudentId)
-                              if (target) pcLabelSide = classifyPcLabelSide(target, desks)
+                              if (target) pcLabelSide = resolvePcLabelSide(target, desks)
                             } else if (obj.type === 'student' || obj.type === 'empty_desk') {
-                              pcLabelSide = classifyPcLabelSide(obj, desks)
+                              pcLabelSide = resolvePcLabelSide(obj, desks)
                             }
+
+                            const isDeskItem = obj.type === 'student' || obj.type === 'empty_desk';
 
                             return (
                               <DraggableItem
@@ -1632,6 +1672,10 @@ export function SeatingPlanPage() {
                                 item={obj}
                                 student={mockStudent}
                                 pcLabelSide={pcLabelSide}
+                                showPcLabelDirectionMenu={layoutMode === 'lab' && isDeskItem}
+                                pcLabelSideOverride={isDeskItem ? obj.pcLabelSideOverride : undefined}
+                                onSetPcLabelSide={isDeskItem ? (side) => handleSetPcLabelSide(obj.id, side) : undefined}
+                                onRemoveFromPlan={isDeskItem ? () => handleRemoveDeskFromPlan(obj) : undefined}
                                 studentsList={students}
                                 updateStudentData={async (id, data) => {
                                   if (obj.type === 'empty_desk') {

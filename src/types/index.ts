@@ -8,6 +8,8 @@ export interface SeatObject {
   x: number;
   y: number;
   eskiPcNolari?: string[]; // Boş masalar için geçmiş PC numaraları
+  /** Lab görünümünde PC etiketi konumu; yoksa otomatik hesaplanır */
+  pcLabelSideOverride?: 'left' | 'right' | 'bottom';
 }
 
 export interface Course {
