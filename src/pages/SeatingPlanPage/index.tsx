@@ -39,8 +39,61 @@ const getObjectSize = (type: string) => {
     case 'tahta': return { w: 200, h: 40 }
     case 'masa': return { w: 120, h: 60 }
     case 'empty_object': return { w: 60, h: 60 }
-    case 'pc_label': return { w: 60, h: 34 }
+    case 'pc_label': return { w: 32, h: 28 }
     default: return { w: 70, h: 70 } // student, empty_desk
+  }
+}
+
+export type PcLabelSide = 'left' | 'right' | 'bottom'
+
+const DESK_SIZE = 70
+const PC_LABEL_W = 32
+const PC_LABEL_H = 28
+const PC_LABEL_PC_H = 18
+const PC_LABEL_OVERLAP = 10
+const PC_LABEL_BOTTOM_GAP = 2
+const NAME_BAR_H = 16
+const LAB_REGION_THRESH = 40
+
+function getLabDesks(objs: SeatObject[]): SeatObject[] {
+  return objs.filter((o) => o.type === 'student' || o.type === 'empty_desk')
+}
+
+function classifyPcLabelSide(desk: { x: number; y: number }, desks: { x: number; y: number }[]): PcLabelSide {
+  if (desks.length === 0) return 'right'
+  const xs = desks.map((d) => d.x)
+  const ys = desks.map((d) => d.y)
+  const minX = Math.min(...xs)
+  const maxX = Math.max(...xs)
+  const minY = Math.min(...ys)
+
+  const onLeftCol = desk.x <= minX + LAB_REGION_THRESH
+  const onRightCol = desk.x >= maxX - LAB_REGION_THRESH
+  const onTopRow = desk.y <= minY + LAB_REGION_THRESH
+
+  if (onTopRow && !onLeftCol && !onRightCol) return 'bottom'
+  if (onLeftCol) return 'right'
+  if (onRightCol) return 'left'
+
+  const island = desks.filter((d) =>
+    d.x > minX + LAB_REGION_THRESH &&
+    d.x < maxX - LAB_REGION_THRESH &&
+    d.y > minY + LAB_REGION_THRESH
+  )
+  const islandXs = (island.length > 0 ? island : desks).map((d) => d.x)
+  const islandMid = (Math.min(...islandXs) + Math.max(...islandXs)) / 2
+  return desk.x <= islandMid ? 'left' : 'right'
+}
+
+function getPcLabelPosition(desk: { x: number; y: number }, side: PcLabelSide): { x: number; y: number } {
+  const sideY = desk.y + DESK_SIZE - NAME_BAR_H - PC_LABEL_PC_H + 4
+  switch (side) {
+    case 'right':
+      return { x: desk.x + DESK_SIZE - PC_LABEL_OVERLAP, y: sideY }
+    case 'left':
+      return { x: desk.x - PC_LABEL_W + PC_LABEL_OVERLAP, y: sideY }
+    case 'bottom':
+      return { x: desk.x + (DESK_SIZE - PC_LABEL_W) / 2, y: desk.y + DESK_SIZE + PC_LABEL_BOTTOM_GAP }
   }
 }
 
@@ -764,13 +817,15 @@ export function SeatingPlanPage() {
       return a.no.localeCompare(b.no);
     });
 
+    const deskStubs = spots.map((s) => ({ x: s.x, y: s.y, type: 'student' as const } as SeatObject))
+
     for (let i = 0; i < spots.length; i++) {
-      const spot = spots[i];
-      const pcNo = String(i + 1);
-      const tempTargetObj = { x: spot.x, y: spot.y, type: 'student' } as SeatObject;
-      const pcPos = getPcSnapPosition(tempTargetObj);
-      const deskId = uuidv4();
-      const isStudent = i < sortedStudents.length;
+      const spot = spots[i]
+      const pcNo = String(i + 1)
+      const tempTargetObj = { x: spot.x, y: spot.y, type: 'student' } as SeatObject
+      const pcPos = getPcLabelPosition(tempTargetObj, classifyPcLabelSide(tempTargetObj, deskStubs))
+      const deskId = uuidv4()
+      const isStudent = i < sortedStudents.length
 
       newObjects.push({
         id: uuidv4(),
@@ -986,11 +1041,15 @@ export function SeatingPlanPage() {
   const addEmptyDesk = () => {
     pushHistory();
     const deskId = uuidv4();
-    setObjects((prev) => [
-      ...prev, 
-      { id: deskId, type: 'empty_desk', x: 965, y: 965, pcNo: '', eskiPcNolari: [] },
-      { id: uuidv4(), type: 'pc_label', pcNo: '', linkedStudentId: deskId, x: 935, y: 953 }
-    ])
+    setObjects((prev) => {
+      const desk = { id: deskId, type: 'empty_desk' as const, x: 965, y: 965, pcNo: '', eskiPcNolari: [] }
+      const pcPos = getPcSnapPosition(desk, [...prev, desk])
+      return [
+        ...prev,
+        desk,
+        { id: uuidv4(), type: 'pc_label', pcNo: '', linkedStudentId: deskId, x: pcPos.x, y: pcPos.y },
+      ]
+    })
   }
 
   const addEmptyObject = () => {
@@ -1049,50 +1108,35 @@ export function SeatingPlanPage() {
     }
   }
 
-  const getPcSnapPosition = (targetObj: SeatObject): { x: number; y: number } => {
-    // etiketi objenin tam sol üst köşesine merkeze alacak şekilde yerleştir
-    const PC_W = 60, PC_H = 24;
-    return { 
-      x: targetObj.x - PC_W / 2, 
-      y: targetObj.y - PC_H / 2 
-    };
-  };
+  const getPcSnapPosition = (targetObj: SeatObject, allObjs?: SeatObject[]): { x: number; y: number } => {
+    const desks = getLabDesks(allObjs ?? objects)
+    const side = classifyPcLabelSide(targetObj, desks.length > 0 ? desks : [targetObj])
+    return getPcLabelPosition(targetObj, side)
+  }
 
   const snapPcLabelsToEdges = (objs: SeatObject[]): SeatObject[] => {
-    const studentMap = new Map<string, SeatObject>();
-    objs.forEach(o => { 
-      if ((o.type === 'student' && o.studentId) || o.type === 'empty_desk') {
-        studentMap.set(o.id, o); 
-      }
-    });
+    const desks = getLabDesks(objs)
+    const studentIdToObjMap = new Map<string, SeatObject>()
+    objs.forEach((o) => {
+      if (o.type === 'student' && o.studentId) studentIdToObjMap.set(o.studentId, o)
+      if (o.type === 'empty_desk') studentIdToObjMap.set(o.id, o)
+    })
 
-    // Student ID / Desk ID -> Object Map for linked labels
-    const studentIdToObjMap = new Map<string, SeatObject>();
-    objs.forEach(o => {
-      if (o.type === 'student' && o.studentId) studentIdToObjMap.set(o.studentId, o);
-      if (o.type === 'empty_desk') studentIdToObjMap.set(o.id, o);
-    });
+    return objs.map((obj) => {
+      if (obj.type !== 'pc_label') return obj
 
-    return objs.map(obj => {
-      if (obj.type !== 'pc_label') return obj;
-      
-      let targetObj: SeatObject | undefined;
-      
+      let targetObj: SeatObject | undefined
       if (obj.linkedStudentId) {
-        targetObj = studentIdToObjMap.get(obj.linkedStudentId);
+        targetObj = studentIdToObjMap.get(obj.linkedStudentId)
       } else {
-        // En yakın boş sırayı veya öğrenciyi bul (başlangıç için)
-        targetObj = Array.from(studentMap.values()).find(s => 
-          Math.hypot(s.x - obj.x, s.y - obj.y) < 100
-        );
+        targetObj = desks.find((s) => Math.hypot(s.x - obj.x, s.y - obj.y) < 100)
       }
 
-      if (!targetObj) return obj;
-      
-      const snapped = getPcSnapPosition(targetObj);
-      return { ...obj, x: Math.round(snapped.x), y: Math.round(snapped.y) };
-    });
-  };
+      if (!targetObj) return obj
+      const snapped = getPcSnapPosition(targetObj, objs)
+      return { ...obj, x: Math.round(snapped.x), y: Math.round(snapped.y) }
+    })
+  }
 
   const handleDragEnd = (e: DragEndEvent) => {
     setActiveId(null)
@@ -1125,38 +1169,18 @@ export function SeatingPlanPage() {
       const movingIds = new Set<string>();
 
       if (isGroupDrag) {
-        // Seçili öğrencilerin veya masaların IDsini topla
-        const selectedTargetIds = new Set<string>();
-        selectedIds.forEach(sid => {
-          const sObj = prev.find(o => o.id === sid && (o.type === 'student' || o.type === 'empty_desk'));
-          if (sObj) selectedTargetIds.add(sObj.type === 'student' ? sObj.studentId! : sObj.id);
-        });
         selectedIds.forEach(id => movingIds.add(id));
-        // Bu hedeflere bağlı PC etiketlerini de sürükle
-        prev.forEach(o => {
-          if (o.type === 'pc_label' && o.linkedStudentId && selectedTargetIds.has(o.linkedStudentId)) {
-            movingIds.add(o.id);
-          }
-        });
       } else {
         movingIds.add(activeObj.id);
-        // Tekli sürüklemede de: bu nesneye bağlı pc_label'ı birlikte taşı
-        if (activeObj.type === 'student' || activeObj.type === 'empty_desk') {
-          const checkId = activeObj.type === 'student' ? activeObj.studentId : activeObj.id;
-          prev.forEach(o => {
-            if (o.type === 'pc_label' && o.linkedStudentId === checkId) {
-              movingIds.add(o.id);
-            }
-          });
-        }
       }
 
       const next = prev.map((obj) => {
-        if (!movingIds.has(obj.id)) return obj;
-        return { ...obj, x: Math.round(obj.x + finalDx), y: Math.round(obj.y + finalDy) };
-      });
+        if (obj.type === 'pc_label') return obj
+        if (!movingIds.has(obj.id)) return obj
+        return { ...obj, x: Math.round(obj.x + finalDx), y: Math.round(obj.y + finalDy) }
+      })
 
-      return next;
+      return snapPcLabelsToEdges(next)
     });
   }
 
@@ -1558,6 +1582,13 @@ export function SeatingPlanPage() {
                             ? objects.find(o => `canvas_${o.id}` === activeId && (o.type === 'student' || o.type === 'empty_desk'))
                             : null;
 
+                          const desks = getLabDesks(objects)
+                          const deskByLinkId = new Map<string, SeatObject>()
+                          desks.forEach((d) => {
+                            if (d.type === 'student' && d.studentId) deskByLinkId.set(d.studentId, d)
+                            if (d.type === 'empty_desk') deskByLinkId.set(d.id, d)
+                          })
+
                           return objects.map((obj) => {
                             let isFollowerDrag = false;
 
@@ -1578,6 +1609,21 @@ export function SeatingPlanPage() {
                               mockStudent = students.find(s => s.id === obj.studentId);
                             } else if (obj.type === 'empty_desk') {
                               mockStudent = { id: obj.id, adSoyad: 'Boş Sıra', no: '', pcNo: obj.pcNo || '', eskiPcNolari: obj.eskiPcNolari || [] };
+                            } else if (obj.type === 'pc_label' && obj.linkedStudentId) {
+                              const linkDesk = deskByLinkId.get(obj.linkedStudentId);
+                              if (linkDesk?.type === 'student' && linkDesk.studentId) {
+                                mockStudent = students.find(s => s.id === linkDesk.studentId);
+                              } else if (linkDesk?.type === 'empty_desk') {
+                                mockStudent = { id: linkDesk.id, adSoyad: 'Boş Sıra', no: '', pcNo: linkDesk.pcNo || '', eskiPcNolari: linkDesk.eskiPcNolari || [] };
+                              }
+                            }
+
+                            let pcLabelSide: PcLabelSide | undefined
+                            if (obj.type === 'pc_label' && obj.linkedStudentId) {
+                              const target = deskByLinkId.get(obj.linkedStudentId)
+                              if (target) pcLabelSide = classifyPcLabelSide(target, desks)
+                            } else if (obj.type === 'student' || obj.type === 'empty_desk') {
+                              pcLabelSide = classifyPcLabelSide(obj, desks)
                             }
 
                             return (
@@ -1585,6 +1631,7 @@ export function SeatingPlanPage() {
                                 key={obj.id}
                                 item={obj}
                                 student={mockStudent}
+                                pcLabelSide={pcLabelSide}
                                 studentsList={students}
                                 updateStudentData={async (id, data) => {
                                   if (obj.type === 'empty_desk') {

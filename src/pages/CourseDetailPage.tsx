@@ -4,7 +4,7 @@ import { collection, doc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { DialogDescription } from '@/components/ui/dialog'
 import {
-  Plus, Camera, Download, Loader2, UserPlus, FileSpreadsheet, Upload, AlertTriangle, Check, Trash2, Star, StarOff, FileText
+  Plus, Camera, Download, Loader2, UserPlus, FileSpreadsheet, Upload, AlertTriangle, Check, Trash2, Star, StarOff, FileText, X, Eye
 } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
@@ -35,6 +35,30 @@ const EMPTY_STUDENT: StudentFormData = {
   behaviorLogs: [],
 }
 
+type ReportScoreCell = number | 'D' | ''
+
+interface ReportTableRow {
+  no: string
+  adSoyad: string
+  pcNo: string
+  scores: ReportScoreCell[]
+  ortalama: number | ''
+}
+
+interface ReportTableData {
+  apps: Application[]
+  rows: ReportTableRow[]
+}
+
+function reportScoreClass(value: ReportScoreCell) {
+  if (value === 'D') return 'text-red-500 font-bold'
+  if (typeof value === 'number') {
+    if (value < 50) return 'text-red-500 font-bold'
+    if (value >= 85) return 'text-emerald-500 font-bold'
+  }
+  return ''
+}
+
 export default function CourseDetailPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const navigate = useNavigate()
@@ -60,6 +84,10 @@ export default function CourseDetailPage() {
   const [addStudentOpen, setAddStudentOpen] = useState(false)
   const [cameraOpen, setCameraOpen] = useState(false)
   const [reportOpen, setReportOpen] = useState(false)
+  const [reportViewOpen, setReportViewOpen] = useState(false)
+  const [reportViewLoading, setReportViewLoading] = useState(false)
+  const [reportViewData, setReportViewData] = useState<ReportTableData | null>(null)
+  const [reportExporting, setReportExporting] = useState(false)
 
   // App form
   const [appForm, setAppForm] = useState({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd'), foto: '' as string | undefined })
@@ -69,6 +97,8 @@ export default function CourseDetailPage() {
   // Student form
   const [studentForm, setStudentForm] = useState<StudentFormData>(EMPTY_STUDENT)
   const [studentSaving, setStudentSaving] = useState(false)
+  const [newStudentPhoto, setNewStudentPhoto] = useState<Blob | File | null>(null)
+  const [newStudentPhotoPreview, setNewStudentPhotoPreview] = useState('')
 
   // Report form
   const [reportRange, setReportRange] = useState({
@@ -125,6 +155,12 @@ export default function CourseDetailPage() {
       setSections(s.sort())
     })
   }, [])
+
+  useEffect(() => {
+    return () => {
+      if (newStudentPhotoPreview.startsWith('blob:')) URL.revokeObjectURL(newStudentPhotoPreview)
+    }
+  }, [newStudentPhotoPreview])
 
   // DOM güncellendikten hemen sonra (ekrana çizilmeden önce) kaydırma zıplamasını düzelt
   useLayoutEffect(() => {
@@ -302,10 +338,13 @@ export default function CourseDetailPage() {
     setAppSaving(false)
   }
 
+  const nextAppName = `${applications.length + 1}.Uygulama`
+
   const handleAddApp = async (e: React.FormEvent) => {
     e.preventDefault()
     setAppSaving(true)
-    const newId = await addApplication(appForm.ad, appForm.tarih)
+    const ad = appForm.ad.trim() || nextAppName
+    const newId = await addApplication(ad, appForm.tarih)
     if (newId) setNewlyAddedAppId(newId)
     setAddAppOpen(false)
     setAppForm({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd'), foto: undefined })
@@ -323,7 +362,19 @@ export default function CourseDetailPage() {
     }
 
     setStudentSaving(true)
-    await addStudent(studentForm)
+    const studentId = await addStudent({ ...studentForm, foto: '' })
+    if (studentId && newStudentPhoto) {
+      try {
+        await queueImageUpload(newStudentPhoto, `students/${studentId}/foto.jpg`, {
+          collection: `courses/${id}/students`,
+          docId: studentId,
+          field: 'foto',
+        })
+      } catch {
+        toast({ title: 'Uyarı', description: 'Öğrenci eklendi ancak fotoğraf yüklenemedi.', variant: 'destructive' })
+      }
+    }
+    clearNewStudentPhoto()
     setStudentForm(EMPTY_STUDENT)
     setAddStudentOpen(false)
     setStudentSaving(false)
@@ -491,12 +542,32 @@ export default function CourseDetailPage() {
     })
   }
 
+  const clearNewStudentPhoto = () => {
+    if (newStudentPhotoPreview.startsWith('blob:')) URL.revokeObjectURL(newStudentPhotoPreview)
+    setNewStudentPhoto(null)
+    setNewStudentPhotoPreview('')
+  }
+
+  const applyNewStudentPhoto = (fileOrBlob: Blob | File) => {
+    if (newStudentPhotoPreview.startsWith('blob:')) URL.revokeObjectURL(newStudentPhotoPreview)
+    setNewStudentPhoto(fileOrBlob)
+    setNewStudentPhotoPreview(URL.createObjectURL(fileOrBlob))
+  }
+
+  const handleNewStudentFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    applyNewStudentPhoto(file)
+    e.target.value = ''
+  }
+
   // Camera functions
   const openCamera = async (studentId: string) => {
     setCameraStudentId(studentId)
     setCameraOpen(true)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+      const facingMode = studentId === 'NEW_STUDENT' ? 'user' : 'environment'
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode } })
       streamRef.current = stream
       if (videoRef.current) videoRef.current.srcObject = stream
     } catch {
@@ -514,7 +585,7 @@ export default function CourseDetailPage() {
 
   const takePhoto = async () => {
     if (!canvasRef.current || !videoRef.current || !cameraStudentId) return
-    if (cameraStudentId !== 'APP_COVER_EDIT' && !selectedApp) return
+    if (cameraStudentId !== 'APP_COVER_EDIT' && cameraStudentId !== 'NEW_STUDENT' && !selectedApp) return
 
     const ctx = canvasRef.current.getContext('2d')!
     canvasRef.current.width = videoRef.current.videoWidth
@@ -522,7 +593,10 @@ export default function CourseDetailPage() {
     ctx.drawImage(videoRef.current, 0, 0)
     canvasRef.current.toBlob(async (blob) => {
       if (!blob) return
-      if (cameraStudentId === 'APP_COVER_EDIT') {
+      if (cameraStudentId === 'NEW_STUDENT') {
+        applyNewStudentPhoto(blob)
+        closeCamera()
+      } else if (cameraStudentId === 'APP_COVER_EDIT') {
         uploadAppPhoto(blob)
       } else if (selectedApp) {
         uploadPhoto(blob, cameraStudentId)
@@ -607,26 +681,62 @@ export default function CourseDetailPage() {
   }
 
   // Report export
-  const handleReport = async () => {
-    const filteredApps = applications.filter(
+  const buildReportTable = async (): Promise<ReportTableData> => {
+    const apps = applications.filter(
       (a) => a.tarih >= reportRange.from && a.tarih <= reportRange.to,
     )
 
+    const allScoresData: Record<string, Record<string, Score>> = {}
+    await Promise.all(apps.map(async (app) => {
+      const appScores = await getScores(app.id)
+      const studentMap: Record<string, Score> = {}
+      appScores.forEach((sc) => {
+        studentMap[sc.studentId] = sc
+      })
+      allScoresData[app.id] = studentMap
+    }))
+
+    const rows = students.map((s) => {
+      let sum = 0
+      let count = 0
+      const scores = apps.map((app) => {
+        const scoreObj = allScoresData[app.id]?.[s.id]
+        if (scoreObj?.devamsiz) return 'D' as const
+        const puan = scoreObj?.puan
+        if (puan !== undefined && puan !== null) {
+          const numPuan = Number(puan)
+          sum += numPuan
+          count++
+          return numPuan
+        }
+        return '' as const
+      })
+      return {
+        no: s.no,
+        adSoyad: s.adSoyad,
+        pcNo: s.pcNo,
+        scores,
+        ortalama: count > 0 ? Math.round(sum / count) : '' as const,
+      }
+    })
+
+    return { apps, rows }
+  }
+
+  const exportReportExcel = async (table: ReportTableData) => {
+    const { apps, rows } = table
     const wb = new ExcelJS.Workbook()
     const ws = wb.addWorksheet('Rapor')
 
-    // Sütun genişlikleri
     ws.getColumn(1).width = 10
     ws.getColumn(2).width = 30
     ws.getColumn(3).width = 10
-    for (let i = 0; i < filteredApps.length; i++) {
+    for (let i = 0; i < apps.length; i++) {
       ws.getColumn(4 + i).width = 15
     }
-    // Ortalama sütunu genişliği
-    ws.getColumn(4 + filteredApps.length).width = 15
+    ws.getColumn(4 + apps.length).width = 15
 
-    // Başlık
-    const totalCols = 4 + filteredApps.length
+    const totalCols = 4 + apps.length
     ws.mergeCells(1, 1, 1, totalCols)
     const titleCell = ws.getCell(1, 1)
     titleCell.value = reportTitle
@@ -635,8 +745,7 @@ export default function CourseDetailPage() {
     titleCell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1F4E78' } }
     ws.getRow(1).height = 30
 
-    // Sütun Başlıkları
-    const headers = ['No', 'Ad Soyad', 'PC No', ...filteredApps.map((a) => `${a.ad}\n(${format(new Date(a.tarih), 'dd.MM.yyyy')})`), 'ORT']
+    const headers = ['No', 'Ad Soyad', 'PC No', ...apps.map((a) => `${a.ad}\n(${format(new Date(a.tarih), 'dd.MM.yyyy')})`), 'ORT']
     ws.addRow(headers)
 
     const headerRow = ws.getRow(2)
@@ -651,47 +760,10 @@ export default function CourseDetailPage() {
       }
     })
 
-    // Tüm puanları önceden çek (mevcut scores state'i sadece seçili uygulama içindir)
-    const allScoresData: Record<string, Record<string, Score>> = {}
-    await Promise.all(filteredApps.map(async (app) => {
-      const appScores = await getScores(app.id)
-      const studentMap: Record<string, Score> = {}
-      appScores.forEach(sc => {
-        studentMap[sc.studentId] = sc
-      })
-      allScoresData[app.id] = studentMap
-    }))
-
-    // Veriler
-    students.forEach((s) => {
-      let sum = 0
-      let count = 0
-      
-      const applicationScores = filteredApps.map((_a) => {
-        const scoreObj = allScoresData[_a.id]?.[s.id]
-        
-        if (scoreObj?.devamsiz) {
-          return 'D'
-        }
-        
-        const puan = scoreObj?.puan
-        if (puan !== undefined && puan !== null) {
-          const numPuan = Number(puan)
-          sum += numPuan
-          count++
-          return numPuan
-        }
-        
-        return ''
-      })
-
-      const ortalama = count > 0 ? Math.round(sum / count) : ''
-      const row = [s.no, s.adSoyad, s.pcNo, ...applicationScores, ortalama]
-      
-      const addedRow = ws.addRow(row)
+    rows.forEach((s) => {
+      const addedRow = ws.addRow([s.no, s.adSoyad, s.pcNo, ...s.scores, s.ortalama])
       addedRow.height = 20
       addedRow.eachCell((cell, colNumber) => {
-        // Ortalamayı ve puanları hizala
         cell.alignment = colNumber > 3 ? { vertical: 'middle', horizontal: 'center' } : { vertical: 'middle', horizontal: 'left' }
         cell.border = {
           top: { style: 'thin', color: { argb: 'FFE5E7EB' } },
@@ -700,7 +772,6 @@ export default function CourseDetailPage() {
           right: { style: 'thin', color: { argb: 'FFE5E7EB' } }
         }
 
-        // Puan renklendirme (D dahil değil, sadece sayılar)
         if (colNumber > 3 && typeof cell.value === 'number') {
           if (cell.value < 50) {
             cell.font = { color: { argb: 'FFEF4444' }, bold: true }
@@ -708,14 +779,12 @@ export default function CourseDetailPage() {
             cell.font = { color: { argb: 'FF10B981' }, bold: true }
           }
         }
-        
-        // Devamsız (D) renklendirme
+
         if (cell.value === 'D') {
           cell.font = { color: { argb: 'FFEF4444' }, bold: true }
         }
 
-        // Ortalama sütununa özel stil (Kalın yapalım)
-        if (colNumber === 4 + filteredApps.length) {
+        if (colNumber === 4 + apps.length) {
           cell.font = { ...cell.font, bold: true }
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } }
         }
@@ -732,8 +801,27 @@ export default function CourseDetailPage() {
     anchor.download = fileName
     anchor.click()
     window.URL.revokeObjectURL(url)
+  }
 
-    setReportOpen(false)
+  const handleReport = async () => {
+    setReportExporting(true)
+    try {
+      const table = await buildReportTable()
+      await exportReportExcel(table)
+      setReportOpen(false)
+    } finally {
+      setReportExporting(false)
+    }
+  }
+
+  const handleShowReport = async () => {
+    setReportViewLoading(true)
+    setReportViewOpen(true)
+    try {
+      setReportViewData(await buildReportTable())
+    } finally {
+      setReportViewLoading(false)
+    }
   }
 
   return (
@@ -874,9 +962,9 @@ export default function CourseDetailPage() {
           <DialogHeader><DialogTitle>Uygulama Ekle</DialogTitle></DialogHeader>
           <form onSubmit={handleAddApp} className="space-y-4 pt-2">
             <div className="space-y-2">
-              <Label htmlFor="appAd">Uygulama Adı *</Label>
-              <Input id="appAd" placeholder="1. Uygulama" value={appForm.ad}
-                onChange={(e) => setAppForm({ ...appForm, ad: e.target.value })} required />
+              <Label htmlFor="appAd">Uygulama Adı</Label>
+              <Input id="appAd" placeholder={nextAppName} value={appForm.ad}
+                onChange={(e) => setAppForm({ ...appForm, ad: e.target.value })} />
             </div>
             <div className="space-y-2">
               <Label htmlFor="appTarih">Tarih *</Label>
@@ -982,7 +1070,13 @@ export default function CourseDetailPage() {
       />
 
       {/* Add Student Dialog */}
-      <Dialog open={addStudentOpen} onOpenChange={setAddStudentOpen}>
+      <Dialog open={addStudentOpen} onOpenChange={(open) => {
+        setAddStudentOpen(open)
+        if (!open) {
+          setStudentForm(EMPTY_STUDENT)
+          clearNewStudentPhoto()
+        }
+      }}>
         <DialogContent>
           <DialogHeader><DialogTitle>Öğrenci Ekle</DialogTitle></DialogHeader>
           <Tabs defaultValue="tekli">
@@ -993,22 +1087,54 @@ export default function CourseDetailPage() {
             </TabsList>
             <TabsContent value="tekli">
               <form onSubmit={handleAddStudent} className="space-y-3 mt-2">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="sNo">No *</Label>
-                    <Input id="sNo" placeholder="1" value={studentForm.no}
-                      onChange={(e) => setStudentForm({ ...studentForm, no: e.target.value })} required />
+                <div className="flex gap-3 items-start">
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <div className="w-20 h-20 rounded-xl border-2 border-dashed border-border overflow-hidden flex items-center justify-center relative bg-accent/30">
+                      {newStudentPhotoPreview ? (
+                        <img src={newStudentPhotoPreview} alt="Öğrenci fotoğrafı" className="w-full h-full object-cover" />
+                      ) : (
+                        <div className="text-center text-muted-foreground flex flex-col items-center">
+                          <Camera className="w-5 h-5 mb-0.5 opacity-50" />
+                          <span className="text-[10px] font-medium leading-tight">Fotoğraf</span>
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <Button type="button" size="sm" variant="outline" className="flex-1 px-0 h-8" onClick={() => openCamera('NEW_STUDENT')} title="Kameradan çek">
+                        <Camera className="w-4 h-4" />
+                      </Button>
+                      <label className="flex-1 cursor-pointer">
+                        <div className="h-8 inline-flex w-full items-center justify-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground" title="Dosyadan yükle">
+                          <Upload className="w-4 h-4" />
+                        </div>
+                        <input type="file" accept="image/*" className="hidden" onChange={handleNewStudentFileUpload} />
+                      </label>
+                      {newStudentPhotoPreview && (
+                        <Button type="button" size="sm" variant="outline" className="px-0 h-8 w-8" onClick={clearNewStudentPhoto} title="Fotoğrafı kaldır">
+                          <X className="w-4 h-4" />
+                        </Button>
+                      )}
+                    </div>
                   </div>
-                  <div className="space-y-1.5">
-                    <Label htmlFor="sPcNo">PC No</Label>
-                    <Input id="sPcNo" placeholder="PC01" value={studentForm.pcNo}
-                      onChange={(e) => setStudentForm({ ...studentForm, pcNo: formatClassName(e.target.value) })} />
+                  <div className="flex-1 space-y-3 min-w-0">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="sNo">No *</Label>
+                        <Input id="sNo" placeholder="1" value={studentForm.no}
+                          onChange={(e) => setStudentForm({ ...studentForm, no: e.target.value })} required />
+                      </div>
+                      <div className="space-y-1.5">
+                        <Label htmlFor="sPcNo">PC No</Label>
+                        <Input id="sPcNo" placeholder="PC01" value={studentForm.pcNo}
+                          onChange={(e) => setStudentForm({ ...studentForm, pcNo: formatClassName(e.target.value) })} />
+                      </div>
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="sAdSoyad">Ad Soyad *</Label>
+                      <Input id="sAdSoyad" placeholder="Ayşe Yılmaz" value={studentForm.adSoyad}
+                        onChange={(e) => setStudentForm({ ...studentForm, adSoyad: formatTitleCase(e.target.value) })} required />
+                    </div>
                   </div>
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="sAdSoyad">Ad Soyad *</Label>
-                  <Input id="sAdSoyad" placeholder="Ayşe Yılmaz" value={studentForm.adSoyad}
-                    onChange={(e) => setStudentForm({ ...studentForm, adSoyad: formatTitleCase(e.target.value) })} required />
                 </div>
                 <DialogFooter>
                   <Button type="button" variant="outline" onClick={() => setAddStudentOpen(false)}>İptal</Button>
@@ -1132,10 +1258,98 @@ export default function CourseDetailPage() {
               {applications.filter(a => a.tarih >= reportRange.from && a.tarih <= reportRange.to).length} uygulama raporlanacak.
             </p>
           </div>
+          <DialogFooter className="flex-col sm:flex-col gap-2">
+            <Button className="w-full" variant="secondary" onClick={handleShowReport} disabled={reportViewLoading || reportExporting}>
+              {reportViewLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Eye className="mr-2 h-4 w-4" />}
+              Göster
+            </Button>
+            <div className="flex w-full gap-2">
+              <Button className="flex-1" variant="outline" onClick={() => setReportOpen(false)}>İptal</Button>
+              <Button className="flex-1" onClick={handleReport} disabled={reportExporting || reportViewLoading}>
+                {reportExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                Excel İndir
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={reportViewOpen} onOpenChange={setReportViewOpen}>
+        <DialogContent className="max-w-[95vw] w-full p-4 gap-3">
+          <DialogHeader>
+            <DialogTitle>Performans Analizi</DialogTitle>
+            <DialogDescription className="sr-only">Excel raporuyla aynı tablo görünümü</DialogDescription>
+          </DialogHeader>
+          {reportViewLoading || !reportViewData ? (
+            <div className="flex justify-center py-16">
+              <Loader2 className="h-8 w-8 animate-spin text-primary" />
+            </div>
+          ) : (
+            <div className="overflow-auto max-h-[min(70dvh,640px)] rounded-lg border border-border">
+              <table className="w-full min-w-[640px] border-collapse text-sm">
+                <thead>
+                  <tr>
+                    <th colSpan={4 + reportViewData.apps.length} className="bg-[#1F4E78] text-white font-bold text-center py-3 px-3 whitespace-normal leading-snug">
+                      {reportTitle}
+                    </th>
+                  </tr>
+                  <tr className="bg-blue-500 text-white">
+                    <th className="py-2 px-2 font-semibold text-center border border-blue-400/40">No</th>
+                    <th className="py-2 px-2 font-semibold text-left border border-blue-400/40">Ad Soyad</th>
+                    <th className="py-2 px-2 font-semibold text-center border border-blue-400/40">PC No</th>
+                    {reportViewData.apps.map((a) => (
+                      <th key={a.id} className="py-2 px-2 font-semibold text-center border border-blue-400/40 min-w-[88px] leading-tight">
+                        <div>{a.ad}</div>
+                        <div className="text-[10px] font-normal opacity-90">{format(new Date(a.tarih), 'dd.MM.yyyy')}</div>
+                      </th>
+                    ))}
+                    <th className="py-2 px-2 font-semibold text-center border border-blue-400/40">ORT</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportViewData.rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={4 + reportViewData.apps.length} className="py-8 text-center text-muted-foreground">
+                        Gösterilecek öğrenci yok.
+                      </td>
+                    </tr>
+                  ) : (
+                    reportViewData.rows.map((row) => (
+                      <tr key={`${row.no}-${row.adSoyad}`} className="odd:bg-white even:bg-slate-50/60">
+                        <td className="py-1.5 px-2 border border-slate-200">{row.no}</td>
+                        <td className="py-1.5 px-2 border border-slate-200 whitespace-nowrap">{row.adSoyad}</td>
+                        <td className="py-1.5 px-2 border border-slate-200 text-center">{row.pcNo}</td>
+                        {row.scores.map((score, i) => (
+                          <td key={reportViewData.apps[i]?.id ?? i} className={`py-1.5 px-2 border border-slate-200 text-center ${reportScoreClass(score)}`}>
+                            {score}
+                          </td>
+                        ))}
+                        <td className={`py-1.5 px-2 border border-slate-200 text-center bg-slate-50 font-bold ${reportScoreClass(row.ortalama)}`}>
+                          {row.ortalama}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
           <DialogFooter>
-            <Button variant="outline" onClick={() => setReportOpen(false)}>İptal</Button>
-            <Button onClick={handleReport}>
-              <Download className="mr-2 h-4 w-4" /> Excel İndir
+            <Button variant="outline" onClick={() => setReportViewOpen(false)}>Kapat</Button>
+            <Button
+              onClick={async () => {
+                if (!reportViewData) return
+                setReportExporting(true)
+                try {
+                  await exportReportExcel(reportViewData)
+                } finally {
+                  setReportExporting(false)
+                }
+              }}
+              disabled={reportExporting || reportViewLoading || !reportViewData}
+            >
+              {reportExporting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+              Excel İndir
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -20,6 +20,7 @@ interface DraggableItemProps {
   isSelectionMode?: boolean
   isSelected?: boolean
   isFollowerDrag?: boolean
+  pcLabelSide?: 'left' | 'right' | 'bottom'
   onSelectionToggle?: () => void
   activeApplicationId?: string | null
   score?: Score
@@ -32,7 +33,7 @@ interface DraggableItemProps {
 
 export function DraggableItem({
   item, student, studentsList, updateStudentData, isSelectionMode, isSelected, isFollowerDrag,
-  onSelectionToggle, onRemove,
+  onSelectionToggle, onRemove, pcLabelSide,
   activeApplicationId, score, onNumpadOpen, onDevamsizToggle, onCameraOpen, onFileUpload
 }: DraggableItemProps) {
   const [isExpanded, setIsExpanded] = useState(false)
@@ -143,8 +144,8 @@ export function DraggableItem({
   }, [student, courseId, navigate])
 
   // pc_label için özel boyut
-  const itemWidth = isPcLabel ? 64 : 70;
-  const itemHeight = isPcLabel ? 24 : 70;
+  const itemWidth = isPcLabel ? 32 : 70;
+  const itemHeight = isPcLabel ? 28 : 70;
 
   return (
     <>
@@ -177,6 +178,7 @@ export function DraggableItem({
             hasActiveApp={!!activeApplicationId}
             score={score}
             onRemove={onRemove}
+            pcLabelSide={pcLabelSide}
           />
         </div>
       </div>
@@ -213,6 +215,7 @@ interface SmallCardProps {
   hasActiveApp: boolean
   score?: Score
   onRemove?: (id: string) => void
+  pcLabelSide?: 'left' | 'right' | 'bottom'
 }
 
 function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, hasActiveApp, score, onRemove }: SmallCardProps) {
@@ -239,13 +242,6 @@ function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, has
               {student.adSoyad.toLocaleUpperCase('tr-TR')}
             </span>
           </div>
-        </div>
-
-        {/* Öğrenci Numarası (Dikey - Sağ kenar) */}
-        <div className="absolute top-4 -right-2 pointer-events-none z-30 select-none">
-          <span className="text-[9px] font-bold text-slate-800 block transform -rotate-90 origin-center whitespace-nowrap">
-            {student.no}
-          </span>
         </div>
 
         {/* Puan rozeti */}
@@ -275,16 +271,23 @@ function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, has
   if (item.type === 'pc_label') {
     const isLinked = !!item.linkedStudentId;
     return (
-      <div 
-        style={{ transform: 'rotate(45deg)' }}
-        className={`w-[60px] h-[24px] backdrop-blur-sm border-2 rounded-xl flex items-center justify-start pl-1.5 select-none transition-all duration-200 ${
-        isLinked
-          ? 'bg-white/70 border-slate-400/15 shadow-sm'
-          : 'bg-white/40 border-slate-300/20 shadow-sm'
-      }`}>
-        <span className={`font-black text-[22px] leading-none ${isLinked ? 'text-slate-700' : 'text-slate-400'}`}>
-          {item.pcNo}
-        </span>
+      <div className="w-[32px] flex flex-col items-center gap-0.5 pointer-events-none select-none">
+        <div
+          className={`w-full h-[18px] backdrop-blur-md border rounded-md flex items-center justify-center transition-all duration-200 ${
+            isLinked
+              ? 'bg-white/90 border-slate-300/60 shadow-sm'
+              : 'bg-white/50 border-slate-300/30 shadow-sm'
+          }`}
+        >
+          <span className={`font-black text-[12px] leading-none tabular-nums ${isLinked ? 'text-slate-800' : 'text-slate-400'}`}>
+            {item.pcNo}
+          </span>
+        </div>
+        {student?.no ? (
+          <span className="text-[9px] font-bold leading-none text-slate-600/90 tabular-nums text-center w-full truncate">
+            {student.no}
+          </span>
+        ) : null}
       </div>
     )
   }
