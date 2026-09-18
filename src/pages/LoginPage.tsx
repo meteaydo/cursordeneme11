@@ -13,7 +13,7 @@ type Mode = 'login' | 'register'
 
 export default function LoginPage() {
   const navigate = useNavigate()
-  const { user, signIn, signUp, signInWithGoogle } = useAuth()
+  const { user, loading: authLoading, signIn, signUp, signInWithGoogle } = useAuth()
   const [mode, setMode] = useState<Mode>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -78,6 +78,15 @@ export default function LoginPage() {
     } finally {
       setLoading(false)
     }
+  }
+
+  // Oturum durumu çözülmeden formu gösterme — yönlendirmeli girişten dönüşte bir an parlıyordu
+  if (authLoading || user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-50 to-purple-50">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
   }
 
   return (
