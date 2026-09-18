@@ -39,7 +39,7 @@ const getObjectSize = (type: string) => {
     case 'tahta': return { w: 200, h: 40 }
     case 'masa': return { w: 120, h: 60 }
     case 'empty_object': return { w: 60, h: 60 }
-    case 'pc_label': return { w: 32, h: 28 }
+    case 'pc_label': return { w: PC_LABEL_W, h: PC_LABEL_H }
     default: return { w: 70, h: 70 } // student, empty_desk
   }
 }

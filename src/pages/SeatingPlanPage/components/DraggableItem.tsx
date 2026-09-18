@@ -112,7 +112,7 @@ export function DraggableItem({
   }
 
   const handlePointerDown = (e: React.PointerEvent) => {
-    if (e.pointerType === 'touch' && (e.nativeEvent as TouchEvent).touches?.length > 1) {
+    if (e.pointerType === 'touch' && (e.nativeEvent as any).touches?.length > 1) {
       return
     }
     if (e.pointerType === 'mouse' && e.button !== 0) {

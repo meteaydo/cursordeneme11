@@ -1,4 +1,10 @@
 {
+  "rewrites": [
+    {
+      "source": "/__/auth/:path*",
+      "destination": "https://ogretmen-yardimci.firebaseapp.com/__/auth/:path*"
+    }
+  ],
   "headers": [
     {
       "source": "/sw.js",
