@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { toast } from '@/hooks/use-toast'
-import { formatClassName } from '@/lib/utils'
+import { formatClassName, getScoreKameraFotolar } from '@/lib/utils'
 
 type PcLabelSideOption = 'left' | 'right' | 'bottom'
 const CONTEXT_MENU_LONG_PRESS_MS = 550
@@ -751,16 +751,27 @@ function ExpandedCardOverlay({
               </label>
 
               {/* Kanıt fotoğraf önizleme */}
-              {score?.kameraFoto ? (
-                <div className="w-20 shrink-0 p-2">
-                  <OfflineImage src={score.kameraFoto} alt="Kanıt" className="w-full h-full object-cover rounded-xl" />
-                </div>
-              ) : (
-                <div className="flex-1 flex flex-col items-center justify-center gap-1.5 py-3.5 opacity-30">
-                  <div className="w-5 h-5 rounded border-2 border-slate-400 border-dashed" />
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Kanıt</span>
-                </div>
-              )}
+              {(() => {
+                const kanitPhotos = getScoreKameraFotolar(score)
+                if (kanitPhotos.length === 0) {
+                  return (
+                    <div className="flex-1 flex flex-col items-center justify-center gap-1.5 py-3.5 opacity-30">
+                      <div className="w-5 h-5 rounded border-2 border-slate-400 border-dashed" />
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Kanıt</span>
+                    </div>
+                  )
+                }
+                return (
+                  <div className="w-20 shrink-0 p-2 relative">
+                    <OfflineImage src={kanitPhotos[0]} alt="Kanıt" className="w-full h-full object-cover rounded-xl" />
+                    {kanitPhotos.length > 1 && (
+                      <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-slate-900/80 text-white text-[9px] font-bold flex items-center justify-center">
+                        {kanitPhotos.length}
+                      </span>
+                    )}
+                  </div>
+                )
+              })()}
             </div>
           </div>
         )}

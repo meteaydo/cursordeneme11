@@ -49,3 +49,17 @@ export function getClassColor(className: string) {
   }
   return CLASS_COLORS[Math.abs(hash) % CLASS_COLORS.length]
 }
+
+/** Uygulama kanıt fotoğrafı üst sınırı */
+export const MAX_UYGULAMA_FOTO = 3
+
+export function getScoreKameraFotolar(
+  score?: { kameraFoto?: string; kameraFotolar?: string[] } | null,
+): string[] {
+  if (!score) return []
+  if (score.kameraFotolar?.length) {
+    return score.kameraFotolar.filter(Boolean).slice(0, MAX_UYGULAMA_FOTO)
+  }
+  if (score.kameraFoto) return [score.kameraFoto]
+  return []
+}

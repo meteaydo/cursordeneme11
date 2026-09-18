@@ -88,6 +88,7 @@ export function useApplications(courseId: string) {
     fields: {
       puan?: number | null
       kameraFoto?: string | null
+      kameraFotolar?: string[]
       devamsiz?: boolean
       kisaNot?: string
     },

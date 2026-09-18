@@ -1,11 +1,12 @@
-import { useState, useEffect, useRef, useLayoutEffect } from 'react'
+import { useState, useEffect, useRef, useLayoutEffect, useMemo } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { collection, doc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { DialogDescription } from '@/components/ui/dialog'
 import {
-  Plus, Camera, Download, Loader2, UserPlus, FileSpreadsheet, Upload, AlertTriangle, Check, Trash2, Star, StarOff, FileText, X, Eye
+  Plus, Camera, Download, Loader2, UserPlus, FileSpreadsheet, Upload, AlertTriangle, Check, Trash2, Star, StarOff, FileText, X, Eye, Search, ArrowUpDown
 } from 'lucide-react'
+import Fuse from 'fuse.js'
 import { Layout } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,7 +26,7 @@ import type { Application, Score, Student, StudentFormData } from '@/types'
 import ExcelJS from 'exceljs'
 import { format } from 'date-fns'
 import { tr } from 'date-fns/locale'
-import { formatTitleCase, formatClassName } from '@/lib/utils'
+import { formatTitleCase, formatClassName, getScoreKameraFotolar, MAX_UYGULAMA_FOTO } from '@/lib/utils'
 import { parseStudentExcel, type ParsedStudent } from '@/lib/excelStudentParser'
 import { parseClassTemplate, fetchClassList } from '@/services/classTemplateService'
 
@@ -33,6 +34,21 @@ const EMPTY_STUDENT: StudentFormData = {
   no: '', adSoyad: '', pcNo: '', eskiPcNolari: [], ozelDurumNotlari: '', foto: '',
   behaviorStars: { yellow: 0, purple: 0 },
   behaviorLogs: [],
+}
+
+type StudentListSortKey = 'no' | 'pcNo' | 'adSoyad'
+
+function compareStudentsBySortKey(a: Student, b: Student, key: StudentListSortKey): number {
+  if (key === 'no') {
+    const na = Number(a.no)
+    const nb = Number(b.no)
+    if (!Number.isNaN(na) && !Number.isNaN(nb) && na !== nb) return na - nb
+    return a.no.localeCompare(b.no, 'tr', { numeric: true })
+  }
+  if (key === 'pcNo') {
+    return (a.pcNo || '').localeCompare(b.pcNo || '', 'tr', { numeric: true })
+  }
+  return a.adSoyad.localeCompare(b.adSoyad, 'tr')
 }
 
 type ReportScoreCell = number | 'D' | ''
@@ -128,6 +144,28 @@ export default function CourseDetailPage() {
   const [cameraStudentId, setCameraStudentId] = useState<string | null>(null)
   const [photoUploading, setPhotoUploading] = useState(false)
   const [numpadOpenFor, setNumpadOpenFor] = useState<string | null>(null)
+  const [studentSortKey, setStudentSortKey] = useState<StudentListSortKey>('no')
+  const [studentSearch, setStudentSearch] = useState('')
+
+  const studentFuse = useMemo(
+    () =>
+      new Fuse(students, {
+        keys: [
+          { name: 'adSoyad', weight: 0.6 },
+          { name: 'no', weight: 0.25 },
+          { name: 'pcNo', weight: 0.15 },
+        ],
+        threshold: 0.4,
+        includeScore: true,
+      }),
+    [students],
+  )
+
+  const displayedStudents = useMemo(() => {
+    const q = studentSearch.trim()
+    const base = q ? studentFuse.search(q).map((r) => r.item) : students
+    return [...base].sort((a, b) => compareStudentsBySortKey(a, b, studentSortKey))
+  }, [students, studentSearch, studentSortKey, studentFuse])
 
   // Scroll Anchoring refs
   const studentsContainerRef = useRef<HTMLDivElement>(null)
@@ -524,20 +562,27 @@ export default function CourseDetailPage() {
     }))
   }
 
-  const handlePhotoDelete = async (studentId: string) => {
+  const handlePhotoDelete = async (studentId: string, photoUrl: string) => {
     if (!selectedApp) return
 
-    await setScore(selectedApp.id, studentId, { kameraFoto: null })
+    const remaining = getScoreKameraFotolar(scores[studentId]).filter((p) => p !== photoUrl)
+    await setScore(selectedApp.id, studentId, {
+      kameraFotolar: remaining,
+      kameraFoto: null,
+    })
     setScores((prev) => {
       const currentStudentScore = prev[studentId]
       if (!currentStudentScore) return prev
 
-      const newScore = { ...currentStudentScore }
-      delete newScore.kameraFoto
+      if (remaining.length === 0) {
+        const { kameraFoto: _k, kameraFotolar: _f, ...rest } = currentStudentScore
+        return { ...prev, [studentId]: rest as Score }
+      }
 
+      const { kameraFoto: _k, ...rest } = currentStudentScore
       return {
         ...prev,
-        [studentId]: newScore,
+        [studentId]: { ...rest, kameraFotolar: remaining } as Score,
       }
     })
   }
@@ -614,32 +659,64 @@ export default function CourseDetailPage() {
 
   const uploadPhoto = async (fileOrBlob: Blob | File, sId: string) => {
     if (!selectedApp || !sId) return
+
+    const existing = getScoreKameraFotolar(scores[sId])
+    if (existing.length >= MAX_UYGULAMA_FOTO) {
+      toast({
+        title: 'Limit',
+        description: `En fazla ${MAX_UYGULAMA_FOTO} uygulama fotoğrafı eklenebilir.`,
+        variant: 'destructive',
+      })
+      return
+    }
+
     setPhotoUploading(true)
 
-    // Anında gösterim için geçici URL oluştur
     const tempUrl = URL.createObjectURL(fileOrBlob)
+    const optimistic = [...existing, tempUrl]
     setScores((prev) => ({
       ...prev,
-      [sId]: { ...prev[sId], kameraFoto: tempUrl },
+      [sId]: {
+        ...prev[sId],
+        id: sId,
+        applicationId: selectedApp.id,
+        studentId: sId,
+        kameraFotolar: optimistic,
+      },
     }))
 
     try {
-      const key = `applications/${selectedApp.id}/${sId}.jpg`
+      const photoId = crypto.randomUUID()
+      const key = `applications/${selectedApp.id}/${sId}/${photoId}.jpg`
       const localUrl = await queueImageUpload(fileOrBlob, key, {
         collection: `courses/${id}/applications/${selectedApp.id}/scores`,
         docId: sId,
-        field: 'kameraFoto'
+        field: 'kameraFotolar',
+        isArray: true,
       })
 
-      await setScore(selectedApp.id, sId, { kameraFoto: localUrl })
+      const withLocal = [...existing, localUrl]
+      await setScore(selectedApp.id, sId, { kameraFotolar: withLocal, kameraFoto: null })
 
-      // Geçici URL'i kalıcı local URL ile değiştir
       setScores((prev) => ({
         ...prev,
-        [sId]: { ...prev[sId], kameraFoto: localUrl },
+        [sId]: {
+          ...prev[sId],
+          id: sId,
+          applicationId: selectedApp.id,
+          studentId: sId,
+          kameraFotolar: withLocal,
+        },
       }))
       closeCamera()
     } catch {
+      setScores((prev) => ({
+        ...prev,
+        [sId]: {
+          ...prev[sId],
+          kameraFotolar: existing.length ? existing : undefined,
+        },
+      }))
       toast({ title: 'Hata', description: 'Fotoğraf yüklenemedi.', variant: 'destructive' })
     } finally {
       setPhotoUploading(false)
@@ -933,7 +1010,47 @@ export default function CourseDetailPage() {
             </Card>
           ) : (
             <div className="space-y-2" ref={studentsContainerRef}>
-              {students.map((student) => (
+              <div className="flex items-center gap-2 mb-2">
+                <Select value={studentSortKey} onValueChange={(v) => setStudentSortKey(v as StudentListSortKey)}>
+                  <SelectTrigger className="h-9 w-[96px] shrink-0 text-xs font-semibold gap-1 px-2">
+                    <ArrowUpDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
+                    <SelectValue placeholder="Sırala" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="no">Öğr No</SelectItem>
+                    <SelectItem value="pcNo">PC No</SelectItem>
+                    <SelectItem value="adSoyad">Ad</SelectItem>
+                  </SelectContent>
+                </Select>
+                <div className="relative flex-1 min-w-0">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                  <Input
+                    value={studentSearch}
+                    onChange={(e) => setStudentSearch(e.target.value)}
+                    placeholder="Akıllı arama (ad, no, PC)..."
+                    className="h-9 pl-8 pr-8 text-xs"
+                  />
+                  {studentSearch && (
+                    <button
+                      type="button"
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                      onClick={() => setStudentSearch('')}
+                      aria-label="Aramayı temizle"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {displayedStudents.length === 0 ? (
+                <Card>
+                  <CardContent className="py-6 text-center text-muted-foreground text-sm">
+                    Aramanızla eşleşen öğrenci yok.
+                  </CardContent>
+                </Card>
+              ) : (
+                displayedStudents.map((student) => (
                 <StudentRow
                   key={student.id}
                   student={student}
@@ -947,10 +1064,11 @@ export default function CourseDetailPage() {
                   onFileUpload={handleFileUpload}
                   onPhotoDelete={handlePhotoDelete}
                   onNavigate={() => navigate(`/courses/${id}/students/${student.id}`)}
-                  dataStudentId={student.id} // Tespiti kolaylaştırmak için id ekledik
+                  dataStudentId={student.id}
                   onNumpadOpen={setNumpadOpenFor}
                 />
-              ))}
+                ))
+              )}
             </div>
           )}
         </div>
@@ -1421,7 +1539,7 @@ interface StudentRowProps {
   onKisaNotChange: (studentId: string, kisaNot: string) => void
   onCamera: (studentId: string) => void
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>, studentId: string) => void
-  onPhotoDelete: (studentId: string) => void
+  onPhotoDelete: (studentId: string, photoUrl: string) => void
   onNavigate: () => void
   dataStudentId?: string // Container'dan id'yi yakalamak için prop
   onNumpadOpen: (studentId: string) => void
@@ -1429,8 +1547,10 @@ interface StudentRowProps {
 
 function StudentRow({ student, selectedApp, score, scoresLoading, onScoreChange: _, onDevamsiz, onKisaNotChange, onCamera, onFileUpload, onPhotoDelete, onNavigate, dataStudentId, onNumpadOpen }: StudentRowProps) {
   const [isZoomed, setIsZoomed] = useState(false)
-  const [isPhotoZoomed, setIsPhotoZoomed] = useState(false)
+  const [zoomPhotoUrl, setZoomPhotoUrl] = useState<string | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const appPhotos = getScoreKameraFotolar(score)
+  const canAddPhoto = appPhotos.length < MAX_UYGULAMA_FOTO
 
   return (
     <div data-student-id={dataStudentId} className="scroll-mt-[150px]">
@@ -1503,34 +1623,37 @@ function StudentRow({ student, selectedApp, score, scoresLoading, onScoreChange:
               </div>
 
               {/* Sağ: Kamera + Yükle + Kısa Not */}
-              <div className="flex items-center gap-1.5">
-                {score?.kameraFoto && (
-                  <>
-                    <div
-                      className="w-8 h-8 shrink-0 border border-border overflow-hidden rounded-md cursor-zoom-in"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        setIsPhotoZoomed(true)
-                      }}
-                      title="Büyüt"
-                    >
-                      <OfflineImage src={score.kameraFoto} alt="Uygulama Fotoğrafı" className="w-full h-full object-cover" />
-                    </div>
+              <div className="flex items-center gap-1.5 flex-wrap justify-end">
+                {appPhotos.map((photoUrl) => (
+                  <div
+                    key={photoUrl}
+                    className="w-8 h-8 shrink-0 border border-border overflow-hidden rounded-md cursor-zoom-in"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      setZoomPhotoUrl(photoUrl)
+                    }}
+                    title="Büyüt"
+                  >
+                    <OfflineImage src={photoUrl} alt="Uygulama Fotoğrafı" className="w-full h-full object-cover" />
+                  </div>
+                ))}
 
-                    <Dialog open={isPhotoZoomed} onOpenChange={setIsPhotoZoomed}>
-                      <DialogContent className="max-w-[90vw] md:max-w-2xl bg-black/95 border-none p-0 overflow-visible shadow-2xl [&>button]:hidden">
-                        <DialogTitle className="sr-only">Fotoğrafı Büyüt</DialogTitle>
-                        <DialogDescription className="sr-only">Öğrencinin uygulama fotoğrafının büyük hali</DialogDescription>
-                        <div className="relative w-full flex items-center justify-center min-h-[30vh]">
-                          <OfflineImage
-                            src={score.kameraFoto}
-                            alt="Uygulama Fotoğrafı"
-                            className="max-w-full max-h-[50vh] object-contain rounded-md"
-                          />
+                <Dialog open={!!zoomPhotoUrl} onOpenChange={(open) => { if (!open) setZoomPhotoUrl(null) }}>
+                  <DialogContent className="max-w-[90vw] md:max-w-2xl bg-black/95 border-none p-0 overflow-visible shadow-2xl [&>button]:hidden">
+                    <DialogTitle className="sr-only">Fotoğrafı Büyüt</DialogTitle>
+                    <DialogDescription className="sr-only">Öğrencinin uygulama fotoğrafının büyük hali</DialogDescription>
+                    {zoomPhotoUrl && (
+                      <div className="relative w-full flex items-center justify-center min-h-[30vh]">
+                        <OfflineImage
+                          src={zoomPhotoUrl}
+                          alt="Uygulama Fotoğrafı"
+                          className="max-w-full max-h-[50vh] object-contain rounded-md"
+                        />
+                        <div className="absolute -top-4 -right-4 flex items-center gap-2 z-50">
                           <Button
                             variant="destructive"
                             size="icon"
-                            className="absolute -top-4 -right-4 h-10 w-10 rounded-full shadow-xl z-50 border-2 border-background hover:bg-destructive hover:scale-105 transition-transform cursor-pointer"
+                            className="h-10 w-10 rounded-full shadow-xl border-2 border-background hover:bg-destructive hover:scale-105 transition-transform cursor-pointer"
                             onClick={(e) => {
                               e.preventDefault()
                               e.stopPropagation()
@@ -1540,41 +1663,59 @@ function StudentRow({ student, selectedApp, score, scoresLoading, onScoreChange:
                           >
                             <Trash2 className="h-5 w-5 text-white" />
                           </Button>
+                          <Button
+                            variant="secondary"
+                            size="icon"
+                            className="h-10 w-10 rounded-full shadow-xl border-2 border-background hover:scale-105 transition-transform cursor-pointer bg-white text-slate-700 hover:bg-slate-100"
+                            onClick={(e) => {
+                              e.preventDefault()
+                              e.stopPropagation()
+                              setZoomPhotoUrl(null)
+                            }}
+                            title="Kapat"
+                            aria-label="Fotoğrafı kapat"
+                          >
+                            <X className="h-5 w-5" />
+                          </Button>
                         </div>
-                      </DialogContent>
-                    </Dialog>
+                      </div>
+                    )}
+                  </DialogContent>
+                </Dialog>
 
-                    <ConfirmDialog
-                      open={deleteConfirmOpen}
-                      onOpenChange={setDeleteConfirmOpen}
-                      title="Fotoğrafı Sil"
-                      description="Bu fotoğrafı silmek istediğinize emin misiniz? Bu işlem geri alınamaz."
-                      confirmText="Sil"
-                      variant="destructive"
-                      onConfirm={() => {
-                        setIsPhotoZoomed(false)
-                        onPhotoDelete(student.id)
-                      }}
-                    />
-                  </>
-                )}
+                <ConfirmDialog
+                  open={deleteConfirmOpen}
+                  onOpenChange={setDeleteConfirmOpen}
+                  title="Fotoğrafı Sil"
+                  description="Bu fotoğrafı silmek istediğinize emin misiniz? Bu işlem geri alınamaz."
+                  confirmText="Sil"
+                  variant="destructive"
+                  onConfirm={() => {
+                    if (zoomPhotoUrl) onPhotoDelete(student.id, zoomPhotoUrl)
+                    setZoomPhotoUrl(null)
+                    setDeleteConfirmOpen(false)
+                  }}
+                />
+
                 <Button
                   size="icon"
                   variant="outline"
                   className="h-8 w-8 shrink-0"
+                  disabled={!canAddPhoto}
                   onClick={() => onCamera(student.id)}
-                  title={score?.kameraFoto ? "Fotoğrafı değiştir" : "Fotoğraf çek"}
+                  title={canAddPhoto ? 'Fotoğraf çek' : `En fazla ${MAX_UYGULAMA_FOTO} fotoğraf`}
                 >
                   <Camera className="h-3.5 w-3.5" />
                 </Button>
-                <label className="cursor-pointer shrink-0">
-                  <div className="h-8 w-8 inline-flex items-center justify-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground" title={score?.kameraFoto ? "Dosyadan değiştir" : "Dosyadan yükle"}>
+                <label className={`cursor-pointer shrink-0 ${canAddPhoto ? '' : 'pointer-events-none opacity-40'}`}>
+                  <div className="h-8 w-8 inline-flex items-center justify-center rounded-md border border-input bg-background hover:bg-accent hover:text-accent-foreground" title={canAddPhoto ? 'Dosyadan yükle' : `En fazla ${MAX_UYGULAMA_FOTO} fotoğraf`}>
                     <Upload className="h-3.5 w-3.5" />
                   </div>
                   <input
                     type="file"
                     accept="image/*"
                     className="hidden"
+                    disabled={!canAddPhoto}
                     onChange={(e) => onFileUpload(e, student.id)}
                   />
                 </label>

@@ -66,7 +66,9 @@ export interface Score {
   applicationId: string
   studentId: string
   puan: number | null
+  /** @deprecated Tek fotoğraf — yeni kayıtlar kameraFotolar kullanır */
   kameraFoto?: string
+  kameraFotolar?: string[]
   devamsiz?: boolean
   kisaNot?: string
 }

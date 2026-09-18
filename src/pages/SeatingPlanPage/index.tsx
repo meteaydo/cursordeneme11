@@ -31,6 +31,7 @@ import { SmartNumpad } from '@/components/ui/smart-numpad'
 import { Loader2, Save, RotateCcw, Plus, Undo2, Redo2, LayoutPanelTop, Trash2, ZoomIn, ZoomOut, Settings, FileSpreadsheet, Printer, Download, Globe } from 'lucide-react'
 import { generateSeatingPlanExcel } from '@/services/excelSeatingService'
 import { useSharedSeatingPlans } from '@/hooks/useSharedSeatingPlans'
+import { getScoreKameraFotolar, MAX_UYGULAMA_FOTO } from '@/lib/utils'
 
 
 
@@ -589,26 +590,42 @@ export function SeatingPlanPage() {
 
   const uploadStudentPhoto = async (fileOrBlob: Blob | File, studentId: string) => {
     if (!activeApplicationId) return
+    const existing = getScoreKameraFotolar(scores[studentId])
+    if (existing.length >= MAX_UYGULAMA_FOTO) {
+      toast({
+        title: 'Limit',
+        description: `En fazla ${MAX_UYGULAMA_FOTO} uygulama fotoğrafı eklenebilir.`,
+        variant: 'destructive',
+      })
+      return
+    }
     setPhotoUploading(true)
     const tempUrl = URL.createObjectURL(fileOrBlob)
     setScores((prev) => ({
       ...prev,
-      [studentId]: { ...prev[studentId], kameraFoto: tempUrl },
+      [studentId]: { ...prev[studentId], kameraFotolar: [...existing, tempUrl] },
     }))
     try {
-      const key = `applications/${activeApplicationId}/${studentId}.jpg`
+      const photoId = crypto.randomUUID()
+      const key = `applications/${activeApplicationId}/${studentId}/${photoId}.jpg`
       const localUrl = await queueImageUpload(fileOrBlob, key, {
         collection: `courses/${courseId}/applications/${activeApplicationId}/scores`,
         docId: studentId,
-        field: 'kameraFoto'
+        field: 'kameraFotolar',
+        isArray: true,
       })
-      await setScore(activeApplicationId, studentId, { kameraFoto: localUrl })
+      const withLocal = [...existing, localUrl]
+      await setScore(activeApplicationId, studentId, { kameraFotolar: withLocal, kameraFoto: null })
       setScores((prev) => ({
         ...prev,
-        [studentId]: { ...prev[studentId], kameraFoto: localUrl },
+        [studentId]: { ...prev[studentId], kameraFotolar: withLocal },
       }))
       closeCamera()
     } catch {
+      setScores((prev) => ({
+        ...prev,
+        [studentId]: { ...prev[studentId], kameraFotolar: existing.length ? existing : undefined },
+      }))
       toast({ title: 'Hata', description: 'Fotoğraf yüklenemedi.', variant: 'destructive' })
     } finally {
       setPhotoUploading(false)
