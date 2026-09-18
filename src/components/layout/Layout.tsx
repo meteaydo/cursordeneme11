@@ -9,6 +9,7 @@ interface LayoutProps {
   showBack?: boolean
   backTo?: string
   rightAction?: ReactNode
+  showLogout?: boolean
   hideTitleOnDesktop?: boolean
   leftExtra?: ReactNode
   backTitle?: string
@@ -21,6 +22,7 @@ export function Layout({
   showBack, 
   backTo, 
   rightAction,
+  showLogout,
   hideTitleOnDesktop,
   leftExtra,
   backTitle,
@@ -35,6 +37,7 @@ export function Layout({
         showBack={showBack} 
         backTo={backTo} 
         rightAction={rightAction} 
+        showLogout={showLogout}
         hideTitleOnDesktop={hideTitleOnDesktop}
         leftExtra={leftExtra}
         backTitle={backTitle}
