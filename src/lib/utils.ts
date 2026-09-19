@@ -97,3 +97,21 @@ export function getScoreKameraFotolar(
   if (score.kameraFoto) return [score.kameraFoto]
   return []
 }
+
+export type KanitKaynagi = 'kamera' | 'dosya'
+
+export function getScoreKanitSayilari(
+  score?: { kameraFoto?: string; kameraFotolar?: string[]; kanitKaynaklari?: KanitKaynagi[]; kisaNot?: string } | null,
+): { kamera: number; dosya: number; not: number } {
+  const urls = getScoreKameraFotolar(score)
+  const sources = score?.kanitKaynaklari
+  let kamera = 0
+  let dosya = 0
+  urls.forEach((_, i) => {
+    const kaynak = sources?.[i] ?? 'kamera'
+    if (kaynak === 'dosya') dosya += 1
+    else kamera += 1
+  })
+  const not = (score?.kisaNot ?? '').trim().length > 0 ? 1 : 0
+  return { kamera, dosya, not }
+}

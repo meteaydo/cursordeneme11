@@ -377,10 +377,13 @@ function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, has
   if (item.type === 'student' && student) {
     const isDevamsiz = score?.devamsiz ?? false
     const puan = score?.puan
+    const hasPuan = puan !== null && puan !== undefined && String(puan) !== ''
 
     return (
       <div className="inset-0 w-[70px] h-[70px] group absolute">
         <div className={`w-full h-full bg-background overflow-hidden relative shadow-sm transition-all duration-200 border border-slate-200/80 rounded-2xl ${
+          hasPuan ? 'opacity-60 grayscale' : ''
+        } ${
           isExpanded ? 'ring-2 ring-primary/60 shadow-lg scale-95' : ''
         } ${isSelected ? 'ring-4 ring-primary shadow-xl scale-95' : (isSelectionMode ? 'opacity-80 scale-95' : 'hover:ring-2 hover:ring-primary/50')}`}>
           {student.foto ? (
@@ -400,8 +403,8 @@ function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, has
         </div>
 
         {/* Puan rozeti */}
-        {hasActiveApp && puan !== null && puan !== undefined && (
-          <div className="absolute -top-2 -left-2 w-6 h-6 bg-primary text-white rounded-full flex items-center justify-center z-20 shadow-md opacity-50">
+        {hasActiveApp && hasPuan && (
+          <div className="absolute -top-1 -left-2 w-6 h-6 bg-primary text-white rounded-full flex items-center justify-center z-20 shadow-md">
             <span className="text-[10px] font-black">{puan}</span>
           </div>
         )}

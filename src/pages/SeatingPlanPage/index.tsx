@@ -53,7 +53,8 @@ const PC_LABEL_W = 32
 const PC_LABEL_H = 28
 const PC_LABEL_PC_H = 18
 const PC_LABEL_OVERLAP = 10
-const PC_LABEL_BOTTOM_GAP = 2
+/** Alt konum: etiket kartın altına bindirilir, fotoğrafa değer */
+const PC_LABEL_BOTTOM_OVERLAP = 4
 const NAME_BAR_H = 16
 const LAB_REGION_THRESH = 40
 
@@ -100,7 +101,7 @@ function getPcLabelPosition(desk: { x: number; y: number }, side: PcLabelSide): 
     case 'left':
       return { x: desk.x - PC_LABEL_W + PC_LABEL_OVERLAP, y: sideY }
     case 'bottom':
-      return { x: desk.x + (DESK_SIZE - PC_LABEL_W) / 2, y: desk.y + DESK_SIZE + PC_LABEL_BOTTOM_GAP }
+      return { x: desk.x + (DESK_SIZE - PC_LABEL_W) / 2, y: desk.y + DESK_SIZE - PC_LABEL_BOTTOM_OVERLAP }
   }
 }
 
@@ -1255,8 +1256,16 @@ export function SeatingPlanPage() {
   return (
     <Layout 
       title={
-        <span className="truncate md:hidden">{course?.dersAdi}</span>
+        <div className="flex flex-col items-center justify-center gap-px md:hidden w-full">
+          <span className="truncate text-[11px] font-semibold uppercase tracking-wide leading-none">{course?.dersAdi}</span>
+          {activeApplicationId && (
+            <span className="truncate text-[9px] font-semibold text-emerald-700 leading-none w-full">
+              {activeApplicationAd}
+            </span>
+          )}
+        </div>
       }
+      stackedMobileTitle={!!activeApplicationId}
       showBack 
       backTitle="Liste Görünümü"
       hideTitleOnDesktop={true}
@@ -1267,10 +1276,9 @@ export function SeatingPlanPage() {
             {course?.dersAdi}
           </span>
           {activeApplicationId && (
-            <div className="bg-green-600/85 backdrop-blur-sm text-white px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1 text-[9px] font-bold w-fit">
-              <div className="w-1 h-1 bg-white rounded-full animate-pulse shrink-0" />
-              <span className="truncate max-w-[120px]">{activeApplicationAd}</span>
-            </div>
+            <span className="text-[10px] font-semibold text-emerald-700 truncate max-w-[220px] leading-tight">
+              {activeApplicationAd}
+            </span>
           )}
         </div>
       }
@@ -1358,13 +1366,6 @@ export function SeatingPlanPage() {
       <div className="absolute inset-0 top-14 md:top-0 bg-[#e5e7eb] overflow-hidden flex flex-col z-0">
         {/* Canvas Alanı */}
         <div ref={canvasContainerRef} className="flex-1 relative h-full w-full bg-[#e5e7eb] touch-none">
-
-          {activeApplicationId && (
-            <div className="md:hidden absolute top-0 inset-x-0 z-30 px-3 py-1.5 bg-green-600/90 backdrop-blur-sm text-white shadow-sm flex items-center justify-center gap-1.5 text-[10px] font-bold pointer-events-none">
-              <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse shrink-0" />
-              <span className="truncate max-w-[min(100%,280px)]">{activeApplicationAd}</span>
-            </div>
-          )}
 
           <TransformWrapper
             minScale={0.1}
@@ -1460,43 +1461,43 @@ export function SeatingPlanPage() {
                 <>
                   <AutoFitter onFit={handleHome} loaded={!courseLoading && !studentsLoading && objects.length > 0} layoutVersion={layoutVersion} />
                   
-                  {/* Üst Sol Buton Grubu */}
-                  <div className={`absolute left-4 md:left-[50px] md:top-16 z-40 flex flex-row md:flex-col gap-3 ${activeApplicationId ? 'top-11 md:top-16' : 'top-4 md:top-16'}`}>
+                  {/* Üst Sol Buton Grubu — header altı (mobil 5px) */}
+                  <div className="absolute left-3 top-[5px] md:left-[50px] md:top-16 z-40 flex flex-row md:flex-col gap-1.5">
                     {/* Düzen Butonları (Grup 1) */}
-                    <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl overflow-hidden pointer-events-auto transition-all">
+                    <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-md rounded-xl overflow-hidden pointer-events-auto transition-all">
                       <button 
                         onClick={() => switchMode('classroom')} 
-                        className={`w-10 h-10 flex items-center justify-center transition-all group border-r border-slate-200/50 ${layoutMode === 'classroom' ? 'bg-primary/10 text-primary' : 'text-slate-800 hover:bg-white'}`} 
+                        className={`w-8 h-8 flex items-center justify-center transition-all group border-r border-slate-200/50 ${layoutMode === 'classroom' ? 'bg-primary/10 text-primary' : 'text-slate-800 hover:bg-white'}`} 
                         title="Sınıf Düzeni"
                       >
-                        <ClassroomDotsIcon className={`w-5 h-5 group-hover:scale-110 transition-transform ${layoutMode === 'classroom' ? 'opacity-100' : 'opacity-70'}`} />
+                        <ClassroomDotsIcon className={`w-4 h-4 group-hover:scale-110 transition-transform ${layoutMode === 'classroom' ? 'opacity-100' : 'opacity-70'}`} />
                       </button>
                       <button 
                         onClick={() => switchMode('lab')} 
-                        className={`w-10 h-10 flex items-center justify-center transition-all group ${layoutMode === 'lab' ? 'bg-primary/10 text-primary' : 'text-slate-800 hover:bg-white'}`} 
+                        className={`w-8 h-8 flex items-center justify-center transition-all group ${layoutMode === 'lab' ? 'bg-primary/10 text-primary' : 'text-slate-800 hover:bg-white'}`} 
                         title="Lab Düzeni"
                       >
-                        <LabDotsIcon className={`w-5 h-5 group-hover:scale-110 transition-transform ${layoutMode === 'lab' ? 'opacity-100' : 'opacity-70'}`} />
+                        <LabDotsIcon className={`w-4 h-4 group-hover:scale-110 transition-transform ${layoutMode === 'lab' ? 'opacity-100' : 'opacity-70'}`} />
                       </button>
                     </div>
 
                     {/* Zoom Butonları (Grup 2) */}
-                    <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl overflow-hidden pointer-events-auto transition-all">
-                      <button onClick={() => handleZoomStep(0.85)} className="w-10 h-10 flex items-center justify-center text-slate-800 hover:bg-white transition-all group border-r border-slate-200/50" title="Uzaklaştır">
-                        <ZoomOut className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                    <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-md rounded-xl overflow-hidden pointer-events-auto transition-all">
+                      <button onClick={() => handleZoomStep(0.85)} className="w-8 h-8 flex items-center justify-center text-slate-800 hover:bg-white transition-all group border-r border-slate-200/50" title="Uzaklaştır">
+                        <ZoomOut className="w-4 h-4 group-hover:scale-110 transition-transform" />
                       </button>
-                      <button onClick={() => handleZoomStep(1.15)} className="w-10 h-10 flex items-center justify-center text-slate-800 hover:bg-white transition-all group" title="Yakınlaştır">
-                        <ZoomIn className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                      <button onClick={() => handleZoomStep(1.15)} className="w-8 h-8 flex items-center justify-center text-slate-800 hover:bg-white transition-all group" title="Yakınlaştır">
+                        <ZoomIn className="w-4 h-4 group-hover:scale-110 transition-transform" />
                       </button>
                     </div>
 
                     {/* Geçmiş Butonları (Grup 3) */}
-                    <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl overflow-hidden pointer-events-auto transition-all">
-                      <button disabled={history.length === 0} onClick={handleUndo} className="w-10 h-10 flex items-center justify-center text-slate-800 hover:bg-white transition-all group border-r border-slate-200/50 disabled:opacity-50 disabled:cursor-not-allowed" title="Geri Al">
-                        <Undo2 className="w-5 h-5 group-hover:-rotate-12 transition-transform" />
+                    <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-md rounded-xl overflow-hidden pointer-events-auto transition-all">
+                      <button disabled={history.length === 0} onClick={handleUndo} className="w-8 h-8 flex items-center justify-center text-slate-800 hover:bg-white transition-all group border-r border-slate-200/50 disabled:opacity-50 disabled:cursor-not-allowed" title="Geri Al">
+                        <Undo2 className="w-4 h-4 group-hover:-rotate-12 transition-transform" />
                       </button>
-                      <button disabled={redoHistory.length === 0} onClick={handleRedo} className="w-10 h-10 flex items-center justify-center text-slate-800 hover:bg-white transition-all group disabled:opacity-50 disabled:cursor-not-allowed" title="İleri Al">
-                        <Redo2 className="w-5 h-5 group-hover:rotate-12 transition-transform" />
+                      <button disabled={redoHistory.length === 0} onClick={handleRedo} className="w-8 h-8 flex items-center justify-center text-slate-800 hover:bg-white transition-all group disabled:opacity-50 disabled:cursor-not-allowed" title="İleri Al">
+                        <Redo2 className="w-4 h-4 group-hover:rotate-12 transition-transform" />
                       </button>
                     </div>
 
@@ -1504,10 +1505,10 @@ export function SeatingPlanPage() {
                       <div className="relative pointer-events-auto" ref={shareRef}>
                         <button 
                           onClick={() => setIsShareOpen(!isShareOpen)} 
-                          className={`w-10 h-10 flex items-center justify-center bg-white/80 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl text-slate-800 transition-all ${isShareOpen ? 'bg-white' : 'hover:bg-white active:scale-95'}`} 
+                          className={`w-8 h-8 flex items-center justify-center bg-white/80 backdrop-blur-md border border-white/60 shadow-md rounded-xl text-slate-800 transition-all ${isShareOpen ? 'bg-white' : 'hover:bg-white active:scale-95'}`} 
                           title="Paylaş"
                         >
-                          <Printer className={`w-5 h-5 transition-transform duration-300 ${isShareOpen ? 'scale-110 text-primary' : ''}`} />
+                          <Printer className={`w-4 h-4 transition-transform duration-300 ${isShareOpen ? 'scale-110 text-primary' : ''}`} />
                         </button>
 
                         {/* Paylaş Seçenek Kartı */}

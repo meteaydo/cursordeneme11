@@ -14,6 +14,8 @@ interface LayoutProps {
   leftExtra?: ReactNode
   backTitle?: string
   onBackClick?: () => void
+  /** Mobilde iki satırlı başlık (ör. ders + uygulama) için header yüksekliği */
+  stackedMobileTitle?: boolean
 }
 
 export function Layout({ 
@@ -26,7 +28,8 @@ export function Layout({
   hideTitleOnDesktop,
   leftExtra,
   backTitle,
-  onBackClick
+  onBackClick,
+  stackedMobileTitle,
 }: LayoutProps) {
   const [spotlightOpen, setSpotlightOpen] = useState(false)
 
@@ -42,6 +45,7 @@ export function Layout({
         leftExtra={leftExtra}
         backTitle={backTitle}
         onBackClick={onBackClick}
+        stackedMobileTitle={stackedMobileTitle}
       />
       <main className="flex-1 container max-w-2xl mx-auto px-4 py-4 pb-24">
         {children}

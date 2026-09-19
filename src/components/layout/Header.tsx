@@ -12,6 +12,7 @@ export interface HeaderProps {
   leftExtra?: React.ReactNode
   backTitle?: string
   onBackClick?: () => void
+  stackedMobileTitle?: boolean
 }
 
 export function Header({ 
@@ -23,7 +24,8 @@ export function Header({
   hideTitleOnDesktop = false,
   leftExtra,
   backTitle,
-  onBackClick
+  onBackClick,
+  stackedMobileTitle = false,
 }: HeaderProps) {
   const navigate = useNavigate()
   const { logout } = useAuth()
@@ -44,7 +46,9 @@ export function Header({
 
   return (
     <header className={`sticky top-0 z-[200] bg-white border-b border-border shadow-sm overflow-visible ${hideTitleOnDesktop ? 'md:bg-transparent md:border-none md:shadow-none md:pointer-events-none' : ''}`}>
-      <div className={`${hideTitleOnDesktop ? 'max-w-none md:px-[50px]' : 'container max-w-2xl mx-auto'} flex items-center justify-between h-14 px-4 gap-2 relative overflow-visible`}>
+      <div
+        className={`${hideTitleOnDesktop ? 'max-w-none md:px-[50px]' : 'container max-w-2xl mx-auto'} flex items-center justify-between h-14 min-h-14 px-4 gap-2 relative overflow-visible`}
+      >
         <div className="flex-1 flex items-center justify-start min-w-10 pointer-events-auto gap-1">
           {showBack && (
             <button onClick={handleBack} className="flex flex-col items-center justify-center -ml-2 w-14 h-12 rounded-xl hover:bg-slate-100/50 active:scale-95 transition-all outline-none shrink-0 group">
@@ -63,7 +67,11 @@ export function Header({
           )}
         </div>
         
-        <h1 className={`absolute left-1/2 -translate-x-1/2 font-semibold text-[13px] md:text-[14px] truncate text-center uppercase tracking-wider w-[calc(100%-120px)] md:w-[calc(100%-200px)] text-slate-800 ${hideTitleOnDesktop ? 'md:hidden' : ''}`}>
+        <h1
+          className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-semibold text-[13px] md:text-[14px] text-center uppercase tracking-wider w-[calc(100%-120px)] md:w-[calc(100%-200px)] text-slate-800 ${
+            hideTitleOnDesktop ? 'md:hidden' : ''
+          } ${stackedMobileTitle ? 'flex flex-col items-center justify-center gap-px leading-none normal-case max-w-[10.5rem]' : 'truncate'}`}
+        >
           {title}
         </h1>
 

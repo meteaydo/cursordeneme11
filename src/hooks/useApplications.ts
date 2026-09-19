@@ -89,6 +89,7 @@ export function useApplications(courseId: string) {
       puan?: number | null
       kameraFoto?: string | null
       kameraFotolar?: string[]
+      kanitKaynaklari?: ('kamera' | 'dosya')[]
       devamsiz?: boolean
       kisaNot?: string
     },

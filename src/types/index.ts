@@ -69,6 +69,8 @@ export interface Score {
   /** @deprecated Tek fotoğraf — yeni kayıtlar kameraFotolar kullanır */
   kameraFoto?: string
   kameraFotolar?: string[]
+  /** kameraFotolar ile aynı sırada: kamera veya dosya yüklemesi */
+  kanitKaynaklari?: ('kamera' | 'dosya')[]
   devamsiz?: boolean
   kisaNot?: string
 }
