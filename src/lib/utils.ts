@@ -23,6 +23,30 @@ export function formatClassName(str: string): string {
   return str.replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
 }
 
+/** PC22 ve 22 aynı numara sayılsın */
+export function pcNoKey(value: string): string {
+  return formatClassName(value).replace(/^PC/, '')
+}
+
+export function samePcNo(a?: string, b?: string): boolean {
+  const ka = pcNoKey(a || '')
+  const kb = pcNoKey(b || '')
+  return ka !== '' && ka === kb
+}
+
+export function dedupeEskiPcNolari(list: string[], extra?: string): string[] {
+  const seen = new Set<string>()
+  const result: string[] = []
+  for (const raw of extra ? [...list, extra] : list) {
+    const value = (raw || '').trim()
+    const key = pcNoKey(value)
+    if (!key || seen.has(key)) continue
+    seen.add(key)
+    result.push(value)
+  }
+  return result
+}
+
 const CLASS_COLORS = [
   'border-l-red-500',
   'border-l-orange-500',

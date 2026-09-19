@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { toast } from '@/hooks/use-toast'
-import { formatClassName, getScoreKameraFotolar } from '@/lib/utils'
+import { formatClassName, dedupeEskiPcNolari, samePcNo, getScoreKameraFotolar } from '@/lib/utils'
 
 type PcLabelSideOption = 'left' | 'right' | 'bottom'
 const CONTEXT_MENU_LONG_PRESS_MS = 550
@@ -65,8 +65,8 @@ export function DraggableItem({
 
   useEffect(() => {
     if (isDragging) {
-      setIsExpanded(false)
       if (longPressTimer.current) clearTimeout(longPressTimer.current)
+      if (pointerMovedRef.current) setIsExpanded(false)
     }
   }, [isDragging])
 
@@ -89,6 +89,12 @@ export function DraggableItem({
   }
 
   const clickStartRef = React.useRef<{ x: number; y: number; time: number; pointerType: string } | null>(null)
+  const pointerMovedRef = useRef(false)
+
+  const openStudentCard = useCallback(() => {
+    if (!isDeskCard || isSelectionMode) return
+    setIsExpanded(true)
+  }, [isDeskCard, isSelectionMode])
 
   const openContextMenu = useCallback((clientX: number, clientY: number) => {
     if (!isDeskCard) return
@@ -124,16 +130,13 @@ export function DraggableItem({
       time: Date.now(),
       pointerType: e.pointerType,
     }
+    pointerMovedRef.current = false
 
     if (!isExpanded && isDeskCard && !isSelectionMode && e.pointerType === 'touch') {
       longPressTimer.current = setTimeout(() => {
         if (!clickStartRef.current) return
         openContextMenu(clickStartRef.current.x, clickStartRef.current.y)
       }, CONTEXT_MENU_LONG_PRESS_MS)
-    }
-
-    if (!isExpanded && listeners?.onPointerDown) {
-      listeners.onPointerDown(e as any)
     }
   }
 
@@ -149,33 +152,32 @@ export function DraggableItem({
       return
     }
 
-    if (!clickStartRef.current || isDragging || !isDeskCard) return
+    if (!clickStartRef.current || !isDeskCard) return
     const dx = Math.abs(e.clientX - clickStartRef.current.x)
     const dy = Math.abs(e.clientY - clickStartRef.current.y)
     const dt = Date.now() - clickStartRef.current.time
-
-    if (dx < 10 && dy < 10 && dt < CONTEXT_MENU_LONG_PRESS_MS) {
-      if (dt < 450) {
-        e.stopPropagation()
-        if (isSelectionMode) {
-          onSelectionToggle?.()
-        } else {
-          setTimeout(() => {
-            setIsExpanded(p => !p)
-          }, 10)
-        }
-      }
-    }
     clickStartRef.current = null
+
+    if (pointerMovedRef.current || dx >= 10 || dy >= 10 || dt >= CONTEXT_MENU_LONG_PRESS_MS) return
+
+    e.stopPropagation()
+    if (isSelectionMode) {
+      onSelectionToggle?.()
+      return
+    }
+    openStudentCard()
   }
 
   const handlePointerMove = (e: React.PointerEvent) => {
-    if (!longPressTimer.current || !clickStartRef.current) return
+    if (!clickStartRef.current) return
     const dx = Math.abs(e.clientX - clickStartRef.current.x)
     const dy = Math.abs(e.clientY - clickStartRef.current.y)
     if (dx > 10 || dy > 10) {
-      clearTimeout(longPressTimer.current)
-      longPressTimer.current = null
+      pointerMovedRef.current = true
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current)
+        longPressTimer.current = null
+      }
     }
   }
 
@@ -211,6 +213,7 @@ export function DraggableItem({
           onPointerDown={isPcLabel ? undefined : handlePointerDown}
           onPointerUp={isPcLabel ? undefined : handlePointerUp}
           onPointerMove={isPcLabel ? undefined : handlePointerMove}
+          onPointerCancel={isPcLabel ? undefined : handlePointerUp}
           onContextMenu={isPcLabel ? undefined : handleContextMenu}
           className={`absolute inset-0 ${isExpanded || isPcLabel ? 'cursor-default' : (isSelectionMode ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing')}`}
         >
@@ -531,7 +534,7 @@ function ExpandedCardOverlay({
       // Sadece form güncellendiğinde, ancak local input formla uyumluysa güncellesin
       // Bu sayede kullanıcı yazarken arkaplan senkronizasyonu yazdığını aniden silmez
       setFormPcNo(student.pcNo || '')
-      setFormEski(student.eskiPcNolari || [])
+      setFormEski(dedupeEskiPcNolari(student.eskiPcNolari || []))
       setLocalPcNo(prev => {
         if (prev === formPcNo) return student.pcNo || '';
         return prev; // Kullanıcı şu an yazıyor, ellemeyelim
@@ -613,10 +616,10 @@ function ExpandedCardOverlay({
     const newPcNo = formatClassName(val);
     setLocalPcNo(newPcNo);
     
-    if (newPcNo === formPcNo) return false;
+    if (samePcNo(newPcNo, formPcNo) || newPcNo === formPcNo) return false;
     
     if (newPcNo) {
-      const conflict = students.find(s => s.pcNo === newPcNo && s.id !== student.id);
+      const conflict = students.find(s => s.id !== student.id && samePcNo(s.pcNo, newPcNo));
       if (conflict) {
         setPcConflictConfirm({ newPcNo, conflictStudent: conflict });
         return true;

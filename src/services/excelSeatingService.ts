@@ -1,177 +1,256 @@
-import ExcelJS from 'exceljs';
-import type { SeatObject, Student } from '@/types';
+import ExcelJS from 'exceljs'
+import type { SeatObject, Student } from '@/types'
 
-// Orijinal boyutlar
-const getObjSize = (type: string) => {
-  switch (type) {
-    case 'tahta': return { w: 200, h: 40 };
-    case 'masa': return { w: 120, h: 60 };
-    case 'pc_label': return { w: 60, h: 36 }; 
-    default: return { w: 70, h: 70 }; // student, empty_desk
+const FONT = 'Arial'
+const GRID = 10
+const PAD_COLS = 2
+const PAD_ROWS = 6
+
+const SIZES: Record<string, { w: number; h: number }> = {
+  tahta: { w: 200, h: 40 },
+  masa: { w: 120, h: 60 },
+  empty_object: { w: 60, h: 60 },
+  student: { w: 70, h: 70 },
+  empty_desk: { w: 70, h: 70 },
+}
+
+function getObjSize(type: string) {
+  return SIZES[type] ?? { w: 70, h: 70 }
+}
+
+function colLetter(ws: ExcelJS.Worksheet, col: number) {
+  return ws.getColumn(Math.max(1, col)).letter
+}
+
+function rangeKey(r: number, c: number) {
+  return `${r}:${c}`
+}
+
+function markOccupied(used: Set<string>, r1: number, c1: number, r2: number, c2: number) {
+  for (let r = r1; r <= r2; r++) {
+    for (let c = c1; c <= c2; c++) used.add(rangeKey(r, c))
   }
-};
+}
+
+function isFree(used: Set<string>, r1: number, c1: number, r2: number, c2: number) {
+  for (let r = r1; r <= r2; r++) {
+    for (let c = c1; c <= c2; c++) {
+      if (used.has(rangeKey(r, c))) return false
+    }
+  }
+  return true
+}
+
+function findFreeBlock(
+  used: Set<string>,
+  startRow: number,
+  startCol: number,
+  spanRow: number,
+  spanCol: number,
+  maxRow: number,
+  maxCol: number,
+) {
+  const candidates = [
+    [0, 0],
+    [0, 1], [1, 0], [0, -1], [-1, 0],
+    [1, 1], [1, -1], [-1, 1], [-1, -1],
+    [0, 2], [2, 0], [0, -2], [-2, 0],
+  ]
+  for (const [dr, dc] of candidates) {
+    const r1 = startRow + dr
+    const c1 = startCol + dc
+    const r2 = r1 + spanRow
+    const c2 = c1 + spanCol
+    if (r1 < PAD_ROWS || c1 < 1 || r2 > maxRow || c2 > maxCol) continue
+    if (isFree(used, r1, c1, r2, c2)) return { r1, c1, r2, c2 }
+  }
+  return null
+}
+
+function pcMapForDesks(objects: SeatObject[]) {
+  const map = new Map<string, string>()
+  for (const obj of objects) {
+    if (obj.type !== 'pc_label' || !obj.linkedStudentId || !obj.pcNo) continue
+    map.set(obj.linkedStudentId, obj.pcNo)
+  }
+  return map
+}
+
+function deskLinkId(obj: SeatObject) {
+  if (obj.type === 'student') return obj.studentId
+  if (obj.type === 'empty_desk') return obj.id
+  return undefined
+}
 
 export const generateSeatingPlanExcel = async (
   objects: SeatObject[],
   students: Student[],
   dersAdi: string,
-  sinifAdi: string
+  sinifAdi: string,
 ) => {
-  const workbook = new ExcelJS.Workbook();
-  const worksheet = workbook.addWorksheet('Oturma Düzeni');
+  const workbook = new ExcelJS.Workbook()
+  const worksheet = workbook.addWorksheet('Oturma Düzeni')
 
-  // Sayfa yapısı ayarları
   worksheet.pageSetup = {
     orientation: 'landscape',
-    paperSize: 9, // A4
-    margins: { left: 0.5, right: 0.5, top: 0.2, bottom: 0.2, header: 0.3, footer: 0.3 },
-    fitToPage: true, // Daralırsa tek sayfaya sığdır
+    paperSize: 9,
+    margins: { left: 0.4, right: 0.4, top: 0.35, bottom: 0.35, header: 0.2, footer: 0.2 },
+    fitToPage: true,
     fitToWidth: 1,
     fitToHeight: 1,
     horizontalCentered: true,
-    verticalCentered: true
-  };
-
-  // Grid (Piksel -> Hücre Dönüşüm Oranı)
-  const GRID_SIZE = 10; 
-  
-  // Koordinat sınırlarını bul
-  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-  objects.forEach(obj => {
-    const { w, h } = getObjSize(obj.type);
-    minX = Math.min(minX, obj.x);
-    minY = Math.min(minY, obj.y);
-    maxX = Math.max(maxX, obj.x + w);
-    maxY = Math.max(maxY, obj.y + h);
-  });
-
-  const totalCols = Math.ceil((maxX - minX + 100) / GRID_SIZE);
-  const totalRows = Math.ceil((maxY - minY + 100) / GRID_SIZE) + 6;
-
-  // Hücre boyutlarını kare(piksel) gibi ayarla (Yaklaşık 10px = 1 birim)
-  for (let i = 1; i <= totalCols + 5; i++) {
-    worksheet.getColumn(i).width = 1.3; // Excel width birimi
-  }
-  for (let i = 1; i <= totalRows + 10; i++) {
-    worksheet.getRow(i).height = 8; // Excel height birimi (points)
+    verticalCentered: true,
   }
 
-  // Başlıklar
-  const lastColLetter = worksheet.getColumn(Math.max(totalCols, 20)).letter;
-  worksheet.mergeCells('A1', `${lastColLetter}2`);
-  const titleCell = worksheet.getCell('A1');
-  titleCell.value = `${sinifAdi.toLocaleUpperCase('tr-TR')} SINIFI ${dersAdi.toLocaleUpperCase('tr-TR')} DERSİ OTURMA PLANI`;
-  titleCell.font = { name: 'Arial', size: 14, bold: true };
-  titleCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+  const drawable = objects.filter((o) => o.type !== 'pc_label')
+  if (drawable.length === 0) {
+    throw new Error('İndirilecek oturma planı nesnesi yok.')
+  }
 
-  // Tarih (Başlığın bir alt hücresi)
-  worksheet.mergeCells('A3', `${lastColLetter}3`);
-  const dateCell = worksheet.getCell('A3');
-  dateCell.value = `${new Date().toLocaleDateString('tr-TR')}`;
-  dateCell.font = { name: 'Arial', size: 10, italic: true };
-  dateCell.alignment = { horizontal: 'center', vertical: 'middle' };
-  worksheet.getRow(3).height = 20; // Tarih satırı yüksekliği artırıldı
+  let minX = Infinity
+  let minY = Infinity
+  let maxX = -Infinity
+  let maxY = -Infinity
+  drawable.forEach((obj) => {
+    const { w, h } = getObjSize(obj.type)
+    minX = Math.min(minX, obj.x)
+    minY = Math.min(minY, obj.y)
+    maxX = Math.max(maxX, obj.x + w)
+    maxY = Math.max(maxY, obj.y + h)
+  })
 
-  const studentMap = new Map<string, Student>();
-  students.forEach(s => studentMap.set(s.id, s));
+  const totalCols = Math.ceil((maxX - minX) / GRID) + PAD_COLS * 2
+  const totalRows = Math.ceil((maxY - minY) / GRID) + PAD_ROWS + 4
+  const maxCol = Math.max(totalCols, 24)
+  const maxRow = Math.max(totalRows, 20)
 
-  // Her bir objeyi Excel'e yerleştir
-  objects.forEach(obj => {
-    const { w, h } = getObjSize(obj.type);
-    
-    // Pixel'i grid satır/sütuna çevir
-    // x,y başlangıç (Sol Üst)
-    const startCol = Math.floor((obj.x - minX) / GRID_SIZE) + 2; // Soldan 1 kolon boşluk
-    const startRow = Math.floor((obj.y - minY) / GRID_SIZE) + 8; // Üstten başlık ve tarih için boşluk (Daha fazla açık)
-    
-    // Kaç hücre kaplayacak?
-    const spanCol = Math.floor(w / GRID_SIZE) - 1;
-    const spanRow = Math.floor(h / GRID_SIZE) - 1;
+  for (let i = 1; i <= maxCol; i++) worksheet.getColumn(i).width = 2.1
+  for (let i = 1; i <= maxRow; i++) worksheet.getRow(i).height = 11
 
-    const endCol = startCol + spanCol;
-    const endRow = startRow + spanRow;
+  const lastCol = colLetter(worksheet, maxCol)
+  worksheet.mergeCells(`A1:${lastCol}2`)
+  const titleCell = worksheet.getCell('A1')
+  titleCell.value = `${sinifAdi.toLocaleUpperCase('tr-TR')} SINIFI  ${dersAdi.toLocaleUpperCase('tr-TR')} DERSİ  OTURMA PLANI`
+  titleCell.font = { name: FONT, size: 14, bold: true, color: { argb: 'FF111827' } }
+  titleCell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true }
+  worksheet.getRow(1).height = 18
+  worksheet.getRow(2).height = 18
 
-    // Exceljs merge string (Örn: "B5:E10")
-    const startCellStr = `${worksheet.getColumn(startCol).letter}${startRow}`;
-    const endCellStr = `${worksheet.getColumn(endCol).letter}${endRow}`;
-    const mergeStr = `${startCellStr}:${endCellStr}`;
+  worksheet.mergeCells(`A3:${lastCol}3`)
+  const dateCell = worksheet.getCell('A3')
+  dateCell.value = new Date().toLocaleDateString('tr-TR')
+  dateCell.font = { name: FONT, size: 10, italic: true, color: { argb: 'FF4B5563' } }
+  dateCell.alignment = { horizontal: 'center', vertical: 'middle' }
+  worksheet.getRow(3).height = 16
+
+  const studentMap = new Map(students.map((s) => [s.id, s]))
+  const pcByLink = pcMapForDesks(objects)
+  const used = new Set<string>()
+  markOccupied(used, 1, 1, 3, maxCol)
+
+  const ordered = [...drawable].sort((a, b) => {
+    const sa = getObjSize(a.type)
+    const sb = getObjSize(b.type)
+    return sb.w * sb.h - sa.w * sa.h
+  })
+
+  for (const obj of ordered) {
+    const { w, h } = getObjSize(obj.type)
+    const spanCol = Math.max(3, Math.round(w / GRID) - 1)
+    const spanRow = Math.max(2, Math.round(h / GRID) - 1)
+    const startCol = Math.floor((obj.x - minX) / GRID) + PAD_COLS
+    const startRow = Math.floor((obj.y - minY) / GRID) + PAD_ROWS
+
+    const block = findFreeBlock(used, startRow, startCol, spanRow, spanCol, maxRow, maxCol)
+    if (!block) continue
+
+    const { r1, c1, r2, c2 } = block
+    const startStr = `${colLetter(worksheet, c1)}${r1}`
+    const endStr = `${colLetter(worksheet, c2)}${r2}`
 
     try {
-      worksheet.mergeCells(mergeStr);
-      const cell = worksheet.getCell(startCellStr);
-      
-      // Standart Kutu formatı
-      cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
-      
-      if (obj.type === 'student' || obj.type === 'empty_desk') {
-        cell.border = {
-          top: { style: 'thin' }, left: { style: 'thin' },
-          bottom: { style: 'thin' }, right: { style: 'thin' }
-        };
-        const student = obj.studentId ? studentMap.get(obj.studentId) : null;
-        if (student) {
-          const adSoyad = student.adSoyad.toLocaleUpperCase('tr-TR');
-          cell.value = `${adSoyad}\n\n${student.no}`;
-          
-          cell.font = { name: 'Arial', size: 9, bold: true };
-          // Sadece numarayı farklı stil yapmak ExcelJS hücresinde Text RichText ile yapılır
-          cell.value = {
-            richText: [
-              { font: { name: 'Arial', size: 10, bold: true }, text: `${adSoyad}\n` },
-              { font: { name: 'Arial', size: 8, color: { argb: 'FF444444' } }, text: student.no }
-            ]
-          };
-        } else {
-          cell.value = "BOŞ";
-          cell.font = { name: 'Arial', size: 6, color: { argb: 'FF888888' } };
-        }
-      } 
-      else if (obj.type === 'pc_label') {
-        cell.border = {
-          top: { style: 'dotted' }, left: { style: 'dotted' },
-          bottom: { style: 'dotted' }, right: { style: 'dotted' }
-        };
-        cell.value = obj.pcNo;
-        cell.font = { name: 'Arial', size: 8, bold: true, color: { argb: 'FF222222' } };
-      }
-      else if (obj.type === 'tahta') {
-        cell.border = {
-          top: { style: 'double' }, left: { style: 'double' },
-          bottom: { style: 'double' }, right: { style: 'double' }
-        };
-        cell.value = "TAHTA";
-        cell.font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF555555' } };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF0F0F0' } };
-      }
-      else if (obj.type === 'masa') {
-        cell.border = {
-          top: { style: 'medium' }, left: { style: 'medium' },
-          bottom: { style: 'medium' }, right: { style: 'medium' }
-        };
-        cell.value = "ÖĞRETMEN\nMASASI";
-        cell.font = { name: 'Arial', size: 8, bold: true, color: { argb: 'FF333333' } };
-        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8E8E8' } };
-      }
-
-    } catch (e) {
-      console.warn(`Hücre birleştirme hatası (Kutular üst üste binmiş olabilir): ${mergeStr}`, e);
-      // Hata olsa da kutunun ilk hücresine metni basmaya devam et (Kaybolmasın)
-      const cell = worksheet.getCell(startCellStr);
-      if (obj.type === 'student' && obj.studentId) {
-        cell.value = studentMap.get(obj.studentId)?.adSoyad;
-      }
+      if (startStr !== endStr) worksheet.mergeCells(`${startStr}:${endStr}`)
+    } catch {
+      continue
     }
-  });
 
-  // Excel dosyasını indir
-  const buffer = await workbook.xlsx.writeBuffer();
-  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = `${dersAdi.replace(/\s+/g, '_')}_Oturma_Plani.xlsx`;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(url);
-};
+    markOccupied(used, r1, c1, r2, c2)
+    const cell = worksheet.getCell(startStr)
+    cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true, shrinkToFit: false }
+
+    if (obj.type === 'student' || obj.type === 'empty_desk') {
+      cell.border = {
+        top: { style: 'thin', color: { argb: 'FF9CA3AF' } },
+        left: { style: 'thin', color: { argb: 'FF9CA3AF' } },
+        bottom: { style: 'thin', color: { argb: 'FF9CA3AF' } },
+        right: { style: 'thin', color: { argb: 'FF9CA3AF' } },
+      }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF9FAFB' } }
+
+      const student = obj.studentId ? studentMap.get(obj.studentId) : undefined
+      const linkId = deskLinkId(obj)
+      const pcNo = (linkId && pcByLink.get(linkId)) || obj.pcNo || student?.pcNo || ''
+
+      if (student) {
+        const adSoyad = student.adSoyad.toLocaleUpperCase('tr-TR')
+        const lines: ExcelJS.RichText[] = [
+          { font: { name: FONT, size: 9, bold: true, color: { argb: 'FF111827' } }, text: adSoyad },
+        ]
+        if (student.no) {
+          lines.push({ font: { name: FONT, size: 8, color: { argb: 'FF4B5563' } }, text: `\n${student.no}` })
+        }
+        if (pcNo) {
+          lines.push({ font: { name: FONT, size: 8, bold: true, color: { argb: 'FF1D4ED8' } }, text: `\nPC ${pcNo}` })
+        }
+        cell.value = { richText: lines }
+      } else {
+        const lines: ExcelJS.RichText[] = [
+          { font: { name: FONT, size: 9, bold: true, color: { argb: 'FF6B7280' } }, text: 'BOŞ' },
+        ]
+        if (pcNo) {
+          lines.push({ font: { name: FONT, size: 8, bold: true, color: { argb: 'FF1D4ED8' } }, text: `\nPC ${pcNo}` })
+        }
+        cell.value = { richText: lines }
+      }
+    } else if (obj.type === 'tahta') {
+      cell.border = {
+        top: { style: 'medium', color: { argb: 'FF6B7280' } },
+        left: { style: 'medium', color: { argb: 'FF6B7280' } },
+        bottom: { style: 'medium', color: { argb: 'FF6B7280' } },
+        right: { style: 'medium', color: { argb: 'FF6B7280' } },
+      }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } }
+      cell.value = 'TAHTA'
+      cell.font = { name: FONT, size: 9, bold: true, color: { argb: 'FF374151' } }
+    } else if (obj.type === 'masa') {
+      cell.border = {
+        top: { style: 'medium', color: { argb: 'FF6B7280' } },
+        left: { style: 'medium', color: { argb: 'FF6B7280' } },
+        bottom: { style: 'medium', color: { argb: 'FF6B7280' } },
+        right: { style: 'medium', color: { argb: 'FF6B7280' } },
+      }
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } }
+      cell.value = { richText: [{ font: { name: FONT, size: 9, bold: true, color: { argb: 'FF374151' } }, text: 'ÖĞRETMEN\nMASASI' }] }
+    } else if (obj.type === 'empty_object') {
+      cell.border = {
+        top: { style: 'dashed', color: { argb: 'FF9CA3AF' } },
+        left: { style: 'dashed', color: { argb: 'FF9CA3AF' } },
+        bottom: { style: 'dashed', color: { argb: 'FF9CA3AF' } },
+        right: { style: 'dashed', color: { argb: 'FF9CA3AF' } },
+      }
+      cell.value = 'OBJE'
+      cell.font = { name: FONT, size: 8, bold: true, color: { argb: 'FF6B7280' } }
+    }
+  }
+
+  const buffer = await workbook.xlsx.writeBuffer()
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = `${dersAdi.replace(/\s+/g, '_')}_Oturma_Plani.xlsx`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}

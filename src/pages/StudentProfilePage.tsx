@@ -24,7 +24,7 @@ import { toast } from '@/hooks/use-toast'
 import type { StudentFormData } from '@/types'
 import { uploadToR2 } from '@/lib/r2'
 import imageCompression from 'browser-image-compression'
-import { formatClassName } from '@/lib/utils'
+import { formatClassName, dedupeEskiPcNolari, samePcNo } from '@/lib/utils'
 const LONG_PRESS_MS = 200
 const MOVE_THRESHOLD = 5
 
@@ -174,10 +174,10 @@ export default function StudentProfilePage() {
     setLocalPcNo(newPcNo);
     
     // Değişiklik yoksa çık
-    if (newPcNo === form.pcNo) return;
+    if (samePcNo(newPcNo, form.pcNo) || newPcNo === form.pcNo) return;
     
     if (newPcNo) {
-      const conflict = students.find(s => s.pcNo === newPcNo && s.id !== sId);
+      const conflict = students.find(s => s.id !== sId && samePcNo(s.pcNo, newPcNo));
       if (conflict) {
         setPcConflictConfirm({ newPcNo, conflictStudent: conflict });
         return;
@@ -203,7 +203,7 @@ export default function StudentProfilePage() {
         no: student.no,
         adSoyad: student.adSoyad,
         pcNo: student.pcNo,
-        eskiPcNolari: student.eskiPcNolari ?? [],
+        eskiPcNolari: dedupeEskiPcNolari(student.eskiPcNolari ?? []),
         ozelDurumNotlari: student.ozelDurumNotlari ?? '',
         ozelDurumFotolari: student.ozelDurumFotolari ?? [],
         bep: student.bep ?? false,

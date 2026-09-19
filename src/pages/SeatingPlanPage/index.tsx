@@ -27,8 +27,9 @@ import { toast } from '@/hooks/use-toast'
 import type { SeatObject, Score, SharedSeatingPlan } from '@/types'
 import { DraggableItem } from './components/DraggableItem'
 import { SharedLayoutsDialog } from './components/SharedLayoutsDialog'
+import { SeatingPlanPreviewDialog } from './components/SeatingPlanPreviewDialog'
 import { SmartNumpad } from '@/components/ui/smart-numpad'
-import { Loader2, Save, RotateCcw, Plus, Undo2, Redo2, LayoutPanelTop, Trash2, ZoomIn, ZoomOut, Settings, FileSpreadsheet, Printer, Download, Globe } from 'lucide-react'
+import { Loader2, Save, RotateCcw, Plus, Undo2, Redo2, LayoutPanelTop, Trash2, ZoomIn, ZoomOut, Settings, FileSpreadsheet, Printer, Download, Globe, Eye } from 'lucide-react'
 import { generateSeatingPlanExcel } from '@/services/excelSeatingService'
 import { useSharedSeatingPlans } from '@/hooks/useSharedSeatingPlans'
 import { getScoreKameraFotolar, MAX_UYGULAMA_FOTO } from '@/lib/utils'
@@ -196,6 +197,7 @@ export function SeatingPlanPage() {
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false)
   const [isSharedLayoutsOpen, setIsSharedLayoutsOpen] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false)
 
   // Paylaşım hook'u — sınıf adına göre filtrelenmiş paylaşılmış düzenleri dinler
   const { sharedPlans, loading: sharedPlansLoading, share: sharePlan, unshare: unsharePlan } = useSharedSeatingPlans(course?.sinifAdi)
@@ -1253,15 +1255,7 @@ export function SeatingPlanPage() {
   return (
     <Layout 
       title={
-        <div className="flex flex-col items-center">
-          <span className="truncate">{course?.dersAdi}</span>
-          {activeApplicationId && (
-            <div className="mt-0.5 bg-green-600/85 backdrop-blur-sm text-white px-2 py-0.5 rounded-full shadow-sm flex items-center gap-1 text-[9px] font-bold">
-              <div className="w-1 h-1 bg-white rounded-full animate-pulse shrink-0" />
-              <span className="truncate max-w-[120px]">{activeApplicationAd}</span>
-            </div>
-          )}
-        </div>
+        <span className="truncate md:hidden">{course?.dersAdi}</span>
       }
       showBack 
       backTitle="Liste Görünümü"
@@ -1365,8 +1359,12 @@ export function SeatingPlanPage() {
         {/* Canvas Alanı */}
         <div ref={canvasContainerRef} className="flex-1 relative h-full w-full bg-[#e5e7eb] touch-none">
 
-
-          {/* Aktif Uygulama Bannerı */}
+          {activeApplicationId && (
+            <div className="md:hidden absolute top-0 inset-x-0 z-30 px-3 py-1.5 bg-green-600/90 backdrop-blur-sm text-white shadow-sm flex items-center justify-center gap-1.5 text-[10px] font-bold pointer-events-none">
+              <div className="w-1.5 h-1.5 bg-white rounded-full animate-pulse shrink-0" />
+              <span className="truncate max-w-[min(100%,280px)]">{activeApplicationAd}</span>
+            </div>
+          )}
 
           <TransformWrapper
             minScale={0.1}
@@ -1463,7 +1461,7 @@ export function SeatingPlanPage() {
                   <AutoFitter onFit={handleHome} loaded={!courseLoading && !studentsLoading && objects.length > 0} layoutVersion={layoutVersion} />
                   
                   {/* Üst Sol Buton Grubu */}
-                  <div className="absolute left-4 md:left-[50px] md:top-16 top-4 z-40 flex flex-row md:flex-col gap-3">
+                  <div className={`absolute left-4 md:left-[50px] md:top-16 z-40 flex flex-row md:flex-col gap-3 ${activeApplicationId ? 'top-11 md:top-16' : 'top-4 md:top-16'}`}>
                     {/* Düzen Butonları (Grup 1) */}
                     <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-lg rounded-2xl overflow-hidden pointer-events-auto transition-all">
                       <button 
@@ -1514,10 +1512,16 @@ export function SeatingPlanPage() {
 
                         {/* Paylaş Seçenek Kartı */}
                         <div className={`absolute top-full mt-2 right-0 md:top-0 md:left-full md:ml-3 z-[210] transition-all duration-300 ease-out origin-top-right md:origin-left flex flex-col ${isShareOpen ? 'opacity-100 scale-100 translate-y-0 md:translate-x-0' : 'opacity-0 scale-95 -translate-y-4 md:-translate-x-4 pointer-events-none'}`}>
-                          <div className="flex flex-col bg-white border border-slate-200 shadow-2xl rounded-[24px] p-2 gap-1 items-stretch w-[170px]">
+                          <div className="flex flex-col bg-white border border-slate-200 shadow-2xl rounded-[24px] p-2 gap-1 items-stretch w-[180px]">
                             <div className="px-3 py-2 border-b border-slate-50 mb-1">
                               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sınıf Oturma Planı</span>
                             </div>
+                            <Button variant="ghost" onClick={() => { setIsShareOpen(false); setPreviewOpen(true); }} className="h-10 px-3 flex items-center justify-start gap-3 rounded-xl hover:bg-blue-50 hover:text-blue-700 transition-all group">
+                              <div className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                                <Eye className="w-4 h-4" />
+                              </div>
+                              <span className="text-[11px] font-bold tracking-wide uppercase">Önizleme</span>
+                            </Button>
                             <Button variant="ghost" onClick={handleDownloadExcel} className="h-10 px-3 flex items-center justify-start gap-3 rounded-xl hover:bg-green-50 hover:text-green-700 transition-all group">
                               <div className="w-7 h-7 bg-green-100 rounded-lg flex items-center justify-center group-hover:bg-green-600 group-hover:text-white transition-colors">
                                 <FileSpreadsheet className="w-4 h-4" />
@@ -1767,6 +1771,19 @@ export function SeatingPlanPage() {
           : undefined}
         onChange={(val) => {
           if (numpadOpenFor) handleScoreChange(numpadOpenFor, val)
+        }}
+      />
+
+      <SeatingPlanPreviewDialog
+        open={previewOpen}
+        onOpenChange={setPreviewOpen}
+        objects={objects}
+        students={students}
+        dersAdi={course?.dersAdi || ''}
+        sinifAdi={course?.sinifAdi || ''}
+        onDownloadExcel={() => {
+          setPreviewOpen(false)
+          void handleDownloadExcel()
         }}
       />
 

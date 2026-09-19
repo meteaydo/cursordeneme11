@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import type { Student, StudentFormData } from '@/types'
+import { dedupeEskiPcNolari, pcNoKey, samePcNo } from '@/lib/utils'
 
 export function useStudents(courseId: string) {
   const [students, setStudents] = useState<Student[]>([])
@@ -81,26 +82,28 @@ export function useStudents(courseId: string) {
     const currentStudent = students.find(s => s.id === studentId);
     const oldPcNo = currentStudent?.pcNo || '';
 
-    // PC No değiştiyse ve yeni PC No boş değilse, eski PC numarasını eskiPcNolari dizisine ekle
-    if (data.pcNo !== undefined && data.pcNo !== oldPcNo && oldPcNo.trim() !== '') {
-      const currentEskiPcNolari = currentStudent?.eskiPcNolari || [];
-      // Eski PC numarası zaten listede yoksa ekle
-      if (!currentEskiPcNolari.includes(oldPcNo)) {
-        const updatedEskiPcNolari = [...currentEskiPcNolari, oldPcNo];
-        data.eskiPcNolari = updatedEskiPcNolari;
-      }
+    if (data.pcNo !== undefined) {
+      const currentEski = data.eskiPcNolari ?? currentStudent?.eskiPcNolari ?? [];
+      const oldKey = pcNoKey(oldPcNo);
+      const newKey = pcNoKey(data.pcNo);
+      const shouldArchive = oldKey !== '' && oldKey !== newKey;
+      data.eskiPcNolari = shouldArchive
+        ? dedupeEskiPcNolari(currentEski, oldPcNo)
+        : dedupeEskiPcNolari(currentEski);
+    } else if (data.eskiPcNolari) {
+      data.eskiPcNolari = dedupeEskiPcNolari(data.eskiPcNolari);
     }
 
     // PC No takası (Swap): Eğer yeni bir PC No atanıyorsa ve bu numara başkasındaysa
     if (data.pcNo && data.pcNo.trim() !== '' && data.pcNo !== oldPcNo) {
-      const conflictStudent = students.find(s => s.pcNo === data.pcNo && s.id !== studentId);
+      const conflictStudent = students.find(s => s.id !== studentId && samePcNo(s.pcNo, data.pcNo));
       
       if (conflictStudent) {
         // Çakışan öğrencinin eski PC numarasını eskiPcNolari dizisine ekle
         const conflictOldPcNo = conflictStudent.pcNo || '';
         const conflictEskiPcNolari = conflictStudent.eskiPcNolari || [];
-        if (conflictOldPcNo.trim() !== '' && !conflictEskiPcNolari.includes(conflictOldPcNo)) {
-          const updatedConflictEskiPcNolari = [...conflictEskiPcNolari, conflictOldPcNo];
+        if (conflictOldPcNo.trim() !== '' && pcNoKey(conflictOldPcNo) !== pcNoKey(data.pcNo || '')) {
+          const updatedConflictEskiPcNolari = dedupeEskiPcNolari(conflictEskiPcNolari, conflictOldPcNo);
           const conflictRef = doc(db, 'courses', courseId, 'students', conflictStudent.id);
           // TAKAS KAPATILDI: Çakışan öğrencinin numarası boşaltılır (diğerinin eski numarasını almaz)
           batch.update(conflictRef, { pcNo: '', eskiPcNolari: updatedConflictEskiPcNolari });
