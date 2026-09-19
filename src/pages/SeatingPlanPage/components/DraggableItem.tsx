@@ -13,7 +13,8 @@ import { toast } from '@/hooks/use-toast'
 import { formatClassName, dedupeEskiPcNolari, eskiPcNolariForDisplay, samePcNo, getScoreKameraFotolar } from '@/lib/utils'
 
 type PcLabelSideOption = 'left' | 'right' | 'bottom'
-const CONTEXT_MENU_LONG_PRESS_MS = 550
+const CONTEXT_MENU_LONG_PRESS_MS = 950
+const CONTEXT_MENU_MOVE_CANCEL_PX = 6
 
 interface DraggableItemProps {
   item: SeatObject
@@ -65,7 +66,10 @@ export function DraggableItem({
 
   useEffect(() => {
     if (isDragging) {
-      if (longPressTimer.current) clearTimeout(longPressTimer.current)
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current)
+        longPressTimer.current = null
+      }
       if (pointerMovedRef.current) setIsExpanded(false)
     }
   }, [isDragging])
@@ -158,7 +162,7 @@ export function DraggableItem({
     const dt = Date.now() - clickStartRef.current.time
     clickStartRef.current = null
 
-    if (pointerMovedRef.current || dx >= 10 || dy >= 10 || dt >= CONTEXT_MENU_LONG_PRESS_MS) return
+    if (pointerMovedRef.current || dx >= CONTEXT_MENU_MOVE_CANCEL_PX || dy >= CONTEXT_MENU_MOVE_CANCEL_PX || dt >= CONTEXT_MENU_LONG_PRESS_MS) return
 
     e.stopPropagation()
     if (isSelectionMode) {
@@ -172,7 +176,7 @@ export function DraggableItem({
     if (!clickStartRef.current) return
     const dx = Math.abs(e.clientX - clickStartRef.current.x)
     const dy = Math.abs(e.clientY - clickStartRef.current.y)
-    if (dx > 10 || dy > 10) {
+    if (dx > CONTEXT_MENU_MOVE_CANCEL_PX || dy > CONTEXT_MENU_MOVE_CANCEL_PX) {
       pointerMovedRef.current = true
       if (longPressTimer.current) {
         clearTimeout(longPressTimer.current)

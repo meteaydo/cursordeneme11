@@ -169,7 +169,12 @@ export default function CoursesPage() {
               <Card
                 key={course.id}
                 className={`cursor-pointer hover:shadow-md transition-shadow active:scale-[0.99] border-l-4 ${getClassColor(course.sinifAdi)}`}
-                onClick={() => navigate(`/courses/${course.id}`, { state: { courseName: course.dersAdi, className: course.sinifAdi } })}
+                onClick={() => {
+                  const path = course.openSeatingByDefault
+                    ? `/courses/${course.id}/seating`
+                    : `/courses/${course.id}`
+                  navigate(path, { state: { courseName: course.dersAdi, className: course.sinifAdi } })
+                }}
               >
                 <CardContent className="p-4">
                   <div className="flex items-start justify-between gap-2">

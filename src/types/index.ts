@@ -23,6 +23,8 @@ export interface Course {
   seatingPlan?: string; // JSON.stringify(SeatObject[]) şeklinde tutulacak
   hasPendingWrites?: boolean
   isShared?: boolean // Paylaşıma açık mı?
+  /** Derslerim'den tıklanınca oturma düzeni açılsın */
+  openSeatingByDefault?: boolean
 }
 
 export interface BehaviorLog {

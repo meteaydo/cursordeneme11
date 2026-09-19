@@ -26,6 +26,7 @@ import {
 import { SmartNumpad } from '@/components/ui/smart-numpad'
 import { useStudents } from '@/hooks/useStudents'
 import { useApplications } from '@/hooks/useApplications'
+import { useCourses } from '@/hooks/useCourses'
 import { queueImageUpload } from '@/lib/imageQueue'
 import { OfflineImage } from '@/components/ui/OfflineImage'
 import { toast } from '@/hooks/use-toast'
@@ -102,6 +103,8 @@ export default function CourseDetailPage() {
 
   const { students, loading: studentsLoading, addStudent, addStudentsBulk } = useStudents(id)
   const { applications, loading: appsLoading, addApplication, updateApplication, deleteApplication, getScores, setScore } = useApplications(id)
+  const { courses, updateCourse } = useCourses()
+  const course = useMemo(() => courses.find((c) => c.id === id), [courses, id])
 
   // Selected application for scoring
   const [selectedApp, setSelectedApp] = useState<Application | null>(null)
@@ -1673,9 +1676,10 @@ export default function CourseDetailPage() {
             <DialogTitle className="text-base">Ders işlemleri</DialogTitle>
           </DialogHeader>
           <div className="flex flex-col p-2 pt-0 gap-1">
+            <div className="rounded-xl overflow-hidden">
             <Button
               variant="ghost"
-              className="h-11 justify-start gap-3 rounded-xl text-sm font-semibold"
+              className="h-11 w-full justify-start gap-3 rounded-none rounded-t-xl text-sm font-semibold"
               onClick={() => {
                 setCourseMenuOpen(false)
                 navigate(`/courses/${id}/seating`, {
@@ -1696,6 +1700,30 @@ export default function CourseDetailPage() {
               </svg>
               Oturma Düzeninde Aç
             </Button>
+            <label className="flex items-center gap-3 px-4 pb-2.5 -mt-1 text-[11px] font-medium text-muted-foreground cursor-pointer select-none">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 shrink-0 accent-primary"
+                checked={!!course?.openSeatingByDefault}
+                onChange={async (e) => {
+                  if (!course) return
+                  const next = e.target.checked
+                  try {
+                    await updateCourse(id, { openSeatingByDefault: next })
+                    toast({
+                      title: next ? 'Varsayılan: oturma düzeni' : 'Varsayılan kapatıldı',
+                      description: next
+                        ? 'Derslerim’den bu derse girince oturma düzeni açılacak.'
+                        : 'Derslerim’den bu derse girince liste görünümü açılacak.',
+                    })
+                  } catch {
+                    toast({ title: 'Kaydedilemedi', variant: 'destructive' })
+                  }
+                }}
+              />
+              Bu Dersi Hep Oturma Düzeninde Aç
+            </label>
+            </div>
             <Button
               variant="ghost"
               className="h-11 justify-start gap-3 rounded-xl text-sm font-semibold"
