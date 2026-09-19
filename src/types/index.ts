@@ -25,6 +25,22 @@ export interface Course {
   isShared?: boolean // Paylaşıma açık mı?
   /** Derslerim'den tıklanınca oturma düzeni açılsın */
   openSeatingByDefault?: boolean
+  annualPlan?: AnnualPlan
+}
+
+export interface AnnualPlanItem {
+  hafta: string
+  tarihBas: string
+  tarihBit: string
+  unite: string
+  konu: string
+  kazanim: string
+}
+
+export interface AnnualPlan {
+  yil: string
+  kaynakDosya?: string
+  items: AnnualPlanItem[]
 }
 
 export interface BehaviorLog {

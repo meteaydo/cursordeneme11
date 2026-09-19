@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { BookOpen, Search, MoreHorizontal, School, Users } from 'lucide-react'
+import { BookOpen, Search, MoreHorizontal, School, Users, CalendarDays } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 
@@ -15,7 +15,8 @@ export function BottomNav({ onSearchOpen }: BottomNavProps) {
   const isCoursesActive = location.pathname.startsWith('/courses')
   const isClassesActive = location.pathname.startsWith('/classes')
   const isSchoolListsActive = location.pathname.startsWith('/school-lists')
-  const isMoreActive = isClassesActive || isSchoolListsActive
+  const isAnnualPlansActive = location.pathname.startsWith('/annual-plans')
+  const isMoreActive = isClassesActive || isSchoolListsActive || isAnnualPlansActive
 
   const go = (path: string) => {
     setMenuOpen(false)
@@ -79,6 +80,17 @@ export function BottomNav({ onSearchOpen }: BottomNavProps) {
         <div className="relative">
           {menuOpen && (
             <div className="absolute bottom-[calc(100%+14px)] right-1/2 translate-x-1/2 z-20 flex flex-col items-center gap-2">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation()
+                  go('/annual-plans')
+                }}
+                className="flex items-center gap-2 whitespace-nowrap rounded-full bg-white text-slate-800 px-4 py-2.5 text-sm font-semibold shadow-xl border border-slate-200 active:scale-95"
+              >
+                <CalendarDays size={16} />
+                Yıllık Planlar
+              </button>
               <button
                 type="button"
                 onClick={(e) => {

@@ -4,7 +4,7 @@ import { collection, doc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { DialogDescription } from '@/components/ui/dialog'
 import {
-  Plus, Camera, Download, Loader2, UserPlus, FileSpreadsheet, Upload, AlertTriangle, Check, Trash2, Star, StarOff, FileText, X, Eye, Search, ArrowUpDown, Menu, MoreVertical, ImageIcon
+  Plus, Camera, Download, Loader2, UserPlus, FileSpreadsheet, Upload, AlertTriangle, Check, Trash2, Star, StarOff, FileText, X, Eye, Search, ArrowUpDown, Menu, MoreVertical, ImageIcon, CalendarDays
 } from 'lucide-react'
 import Fuse from 'fuse.js'
 import { Layout } from '@/components/layout/Layout'
@@ -30,13 +30,15 @@ import { useCourses } from '@/hooks/useCourses'
 import { queueImageUpload } from '@/lib/imageQueue'
 import { OfflineImage } from '@/components/ui/OfflineImage'
 import { toast } from '@/hooks/use-toast'
-import type { Application, Score, Student, StudentFormData } from '@/types'
+import type { AnnualPlan, Application, Score, Student, StudentFormData } from '@/types'
 import ExcelJS from 'exceljs'
 import { format } from 'date-fns'
 import { tr } from 'date-fns/locale'
 import { formatTitleCase, formatClassName, getScoreKameraFotolar, getScoreKanitSayilari, MAX_UYGULAMA_FOTO, type KanitKaynagi } from '@/lib/utils'
 import { parseStudentExcel, type ParsedStudent } from '@/lib/excelStudentParser'
 import { parseClassTemplate, fetchClassList } from '@/services/classTemplateService'
+import { AnnualPlanBanner } from '@/components/AnnualPlanBanner'
+import { parseAnnualPlanDocx } from '@/lib/annualPlanParser'
 
 const EMPTY_STUDENT: StudentFormData = {
   no: '', adSoyad: '', pcNo: '', eskiPcNolari: [], ozelDurumNotlari: '', foto: '',
@@ -168,6 +170,11 @@ export default function CourseDetailPage() {
   const [onlyBos, setOnlyBos] = useState(false)
   const [courseMenuOpen, setCourseMenuOpen] = useState(false)
   const [devamsizListOpen, setDevamsizListOpen] = useState(false)
+  const [annualPlanOpen, setAnnualPlanOpen] = useState(false)
+  const [annualPlanPreview, setAnnualPlanPreview] = useState<AnnualPlan | null>(null)
+  const [annualPlanParsing, setAnnualPlanParsing] = useState(false)
+  const [annualPlanSaving, setAnnualPlanSaving] = useState(false)
+  const annualPlanFileRef = useRef<HTMLInputElement>(null)
 
   const studentFuse = useMemo(
     () =>
@@ -965,6 +972,41 @@ export default function CourseDetailPage() {
     }
   }
 
+  const handleAnnualPlanFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setAnnualPlanParsing(true)
+    try {
+      const plan = await parseAnnualPlanDocx(file)
+      setAnnualPlanPreview(plan)
+      setAnnualPlanOpen(true)
+    } catch (err) {
+      toast({
+        title: 'Yıllık plan okunamadı',
+        description: err instanceof Error ? err.message : 'Word belgesi beklenen MEB şablonunda değil.',
+        variant: 'destructive',
+      })
+    } finally {
+      setAnnualPlanParsing(false)
+    }
+  }
+
+  const handleAnnualPlanSave = async () => {
+    if (!annualPlanPreview) return
+    setAnnualPlanSaving(true)
+    try {
+      await updateCourse(id, { annualPlan: annualPlanPreview })
+      toast({ title: 'Yıllık plan kaydedildi', description: `${annualPlanPreview.items.length} hafta · ${annualPlanPreview.yil}` })
+      setAnnualPlanOpen(false)
+      setAnnualPlanPreview(null)
+    } catch {
+      toast({ title: 'Kaydedilemedi', variant: 'destructive' })
+    } finally {
+      setAnnualPlanSaving(false)
+    }
+  }
+
   return (
     <Layout
       title={pageTitle}
@@ -993,6 +1035,17 @@ export default function CourseDetailPage() {
               <p className="text-sm text-muted-foreground">
                 Lütfen bekleyin, şablon otomatik olarak sunucudan alınıyor ve ekranınıza taşınıyor...
               </p>
+            </div>
+          </div>
+        </div>
+      )}
+      {annualPlanParsing && (
+        <div className="fixed inset-0 z-[600] bg-background/80 backdrop-blur-sm flex flex-col items-center justify-center p-4">
+          <div className="bg-card text-card-foreground p-6 rounded-2xl shadow-xl flex flex-col items-center max-w-sm w-full text-center space-y-4 border border-border">
+            <Loader2 className="h-10 w-10 text-primary animate-spin" />
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold tracking-tight">Yıllık plan okunuyor</h3>
+              <p className="text-sm text-muted-foreground">Word belgesindeki haftalık kazanımlar çıkarılıyor...</p>
             </div>
           </div>
         </div>
@@ -1058,6 +1111,7 @@ export default function CourseDetailPage() {
             )}
           </div>
         </div>
+        <AnnualPlanBanner plan={course?.annualPlan} />
         {/* Students Section */}
         <div>
           {studentsLoading ? (
@@ -1746,7 +1800,69 @@ export default function CourseDetailPage() {
               <UserPlus className="h-[18px] w-[18px] shrink-0 text-blue-600" />
               Öğrenci ekle
             </Button>
+            <Button
+              variant="ghost"
+              className="h-11 justify-start gap-3 rounded-xl text-sm font-semibold"
+              onClick={() => {
+                setCourseMenuOpen(false)
+                annualPlanFileRef.current?.click()
+              }}
+            >
+              <CalendarDays className="h-[18px] w-[18px] shrink-0 text-blue-600" />
+              Yıllık plan yükle
+            </Button>
           </div>
+        </DialogContent>
+      </Dialog>
+
+      <input
+        ref={annualPlanFileRef}
+        type="file"
+        accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        className="hidden"
+        onChange={handleAnnualPlanFile}
+      />
+
+      <Dialog open={annualPlanOpen} onOpenChange={(open) => {
+        setAnnualPlanOpen(open)
+        if (!open) setAnnualPlanPreview(null)
+      }}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Yıllık plan</DialogTitle>
+            <DialogDescription>
+              {annualPlanPreview
+                ? `${annualPlanPreview.yil} · ${annualPlanPreview.items.length} hafta`
+                : 'MEB e-Yıllık Plan Word belgesi'}
+            </DialogDescription>
+          </DialogHeader>
+          {annualPlanPreview && (
+            <div className="max-h-[50vh] overflow-y-auto rounded-md border divide-y text-sm">
+              {annualPlanPreview.items.slice(0, 12).map((row) => (
+                <div key={`${row.hafta}-${row.tarihBas}`} className="px-3 py-2">
+                  <div className="text-[11px] font-semibold text-muted-foreground">
+                    {row.hafta} · {row.tarihBas.slice(8)}–{row.tarihBit.slice(8)}
+                  </div>
+                  <div className="font-medium line-clamp-1">{row.konu || row.unite}</div>
+                  {row.kazanim && <div className="text-xs text-muted-foreground line-clamp-2">{row.kazanim}</div>}
+                </div>
+              ))}
+              {annualPlanPreview.items.length > 12 && (
+                <div className="px-3 py-2 text-xs text-muted-foreground">
+                  +{annualPlanPreview.items.length - 12} hafta daha
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setAnnualPlanOpen(false); setAnnualPlanPreview(null) }}>
+              İptal
+            </Button>
+            <Button onClick={handleAnnualPlanSave} disabled={!annualPlanPreview || annualPlanSaving}>
+              {annualPlanSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Kaydet
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

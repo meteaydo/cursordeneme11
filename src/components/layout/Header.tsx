@@ -51,10 +51,17 @@ export function Header({
       >
         <div className="flex-1 flex items-center justify-start min-w-10 pointer-events-auto gap-1">
           {showBack && (
-            <button onClick={handleBack} className="flex flex-col items-center justify-center -ml-2 w-14 h-12 rounded-xl hover:bg-slate-100/50 active:scale-95 transition-all outline-none shrink-0 group">
+            <button
+              onClick={handleBack}
+              className="flex flex-col items-center justify-center -ml-2 w-[4.5rem] min-w-[4.5rem] h-12 rounded-xl hover:bg-slate-100/50 active:scale-95 transition-all outline-none shrink-0 group"
+              aria-label={backTitle ? `${backTitle}, geri` : 'Geri'}
+            >
               <ArrowLeft className="h-5 w-5 text-slate-700 mb-0.5 group-hover:-translate-x-0.5 transition-transform" />
               {backTitle && (
-                <span className="text-[8px] font-bold text-slate-400 uppercase tracking-wider line-clamp-2 leading-tight w-[60px] text-center px-0.5 break-words" title={backTitle}>
+                <span
+                  className="text-[9px] font-semibold text-slate-500 line-clamp-2 leading-[1.15] w-full text-center px-0.5 [overflow-wrap:normal] [word-break:normal]"
+                  title={backTitle}
+                >
                   {backTitle}
                 </span>
               )}
@@ -68,7 +75,7 @@ export function Header({
         </div>
         
         <h1
-          className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-semibold text-[13px] md:text-[14px] text-center uppercase tracking-wider w-[calc(100%-120px)] md:w-[calc(100%-200px)] text-slate-800 ${
+          className={`absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 font-semibold text-[13px] md:text-[14px] text-center uppercase tracking-wider text-slate-800 w-[calc(100%-9.5rem)] md:w-[calc(100%-200px)] ${
             hideTitleOnDesktop ? 'md:hidden' : ''
           } ${stackedMobileTitle ? 'flex flex-col items-center justify-center gap-px leading-none normal-case max-w-[10.5rem]' : 'truncate'}`}
         >

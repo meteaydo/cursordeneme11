@@ -10,6 +10,7 @@ import { SeatingPlanPage } from '@/pages/SeatingPlanPage'
 import ClassesPage from '@/pages/ClassesPage'
 import SchoolListsPage from '@/pages/SchoolListsPage'
 import ClassDetailPage from '@/pages/ClassDetailPage'
+import AnnualPlansPage from '@/pages/AnnualPlansPage'
 import PWABadge from '@/components/PWABadge'
 
 export default function App() {
@@ -79,6 +80,14 @@ export default function App() {
             element={
               <ProtectedRoute>
                 <ClassDetailPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/annual-plans"
+            element={
+              <ProtectedRoute>
+                <AnnualPlansPage />
               </ProtectedRoute>
             }
           />
