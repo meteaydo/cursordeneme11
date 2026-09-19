@@ -4,12 +4,21 @@ import { useAuth } from '@/contexts/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { BookOpen, Loader2 } from 'lucide-react'
+import { Card, CardContent } from '@/components/ui/card'
+import { BookOpen, Eye, EyeOff, Loader2 } from 'lucide-react'
 
 import versionRaw from '../../version.md?raw'
 
 type Mode = 'login' | 'register'
+
+const GMAIL_DOMAIN = 'gmail.com'
+
+function completeEmailAddress(raw: string): string {
+  const trimmed = raw.trim()
+  if (!trimmed) return trimmed
+  if (trimmed.includes('@')) return trimmed
+  return `${trimmed}@${GMAIL_DOMAIN}`
+}
 
 export default function LoginPage() {
   const navigate = useNavigate()
@@ -20,6 +29,7 @@ export default function LoginPage() {
   const [displayName, setDisplayName] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [showPassword, setShowPassword] = useState(false)
 
   // Get last line of version.md
   const versionLines = versionRaw.trim().split('\n')
@@ -29,20 +39,36 @@ export default function LoginPage() {
     if (user) navigate('/courses', { replace: true })
   }, [user, navigate])
 
+  const handleEmailChange = (value: string) => {
+    const firstAtTyped = !email.includes('@') && value.endsWith('@') && value.indexOf('@') === value.length - 1
+    if (firstAtTyped) {
+      setEmail(`${value}${GMAIL_DOMAIN}`)
+      return
+    }
+    setEmail(value)
+  }
+
+  const handleEmailBlur = () => {
+    if (!email.trim() || email.includes('@')) return
+    setEmail(completeEmailAddress(email))
+  }
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    const resolvedEmail = completeEmailAddress(email)
+    if (resolvedEmail !== email) setEmail(resolvedEmail)
     setLoading(true)
     try {
       if (mode === 'login') {
-        await signIn(email, password)
+        await signIn(resolvedEmail, password)
       } else {
         if (!displayName.trim()) {
           setError('Ad Soyad zorunludur.')
           setLoading(false)
           return
         }
-        await signUp(email, password, displayName)
+        await signUp(resolvedEmail, password, displayName)
       }
       navigate('/courses')
     } catch (err: unknown) {
@@ -101,13 +127,7 @@ export default function LoginPage() {
         </div>
 
         <Card className="shadow-lg">
-          <CardHeader className="pb-3">
-            <CardTitle className="text-lg">{mode === 'login' ? 'Giriş Yap' : 'Kayıt Ol'}</CardTitle>
-            <CardDescription>
-              {mode === 'login' ? 'Hesabınıza giriş yapın' : 'Yeni hesap oluşturun'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
+          <CardContent className="pt-6">
             <form onSubmit={handleSubmit} className="space-y-3">
               {mode === 'register' && (
                 <div className="space-y-1.5">
@@ -126,23 +146,42 @@ export default function LoginPage() {
                 <Input
                   id="email"
                   type="email"
-                  placeholder="ornek@okul.com"
+                  inputMode="email"
+                  autoComplete="email"
+                  placeholder="kullaniciadi veya eposta"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  onChange={(e) => handleEmailChange(e.target.value)}
+                  onBlur={handleEmailBlur}
                   required
                 />
               </div>
               <div className="space-y-1.5">
                 <Label htmlFor="password">Şifre</Label>
-                <Input
-                  id="password"
-                  type="password"
-                  placeholder="••••••••"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  required
-                  minLength={6}
-                />
+                <div className="relative">
+                  <Input
+                    id="password"
+                    type={showPassword ? 'text' : 'password'}
+                    placeholder="••••••••"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={6}
+                    autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                    className="pr-10"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((v) => !v)}
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
+                    aria-label={showPassword ? 'Şifreyi gizle' : 'Şifreyi göster'}
+                  >
+                    {showPassword ? (
+                      <Eye className="h-4 w-4" aria-hidden />
+                    ) : (
+                      <EyeOff className="h-4 w-4" aria-hidden />
+                    )}
+                  </button>
+                </div>
               </div>
 
               {error && (

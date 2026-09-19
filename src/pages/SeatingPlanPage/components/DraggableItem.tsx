@@ -10,7 +10,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { toast } from '@/hooks/use-toast'
-import { formatClassName, dedupeEskiPcNolari, samePcNo, getScoreKameraFotolar } from '@/lib/utils'
+import { formatClassName, dedupeEskiPcNolari, eskiPcNolariForDisplay, samePcNo, getScoreKameraFotolar } from '@/lib/utils'
 
 type PcLabelSideOption = 'left' | 'right' | 'bottom'
 const CONTEXT_MENU_LONG_PRESS_MS = 550
@@ -522,11 +522,11 @@ function ExpandedCardOverlay({
   const isDevamsiz = score?.devamsiz ?? false
   const puan = score?.puan
 
-  const LONG_PRESS_MS = 200
-  const MOVE_THRESHOLD = 5
+  const LONG_PRESS_MS = 550
+  const MOVE_THRESHOLD = 8
 
   const [formPcNo, setFormPcNo] = useState(student.pcNo || '')
-  const [formEski, setFormEski] = useState<string[]>(student.eskiPcNolari || [])
+  const [formEski, setFormEski] = useState(() => eskiPcNolariForDisplay(student.pcNo, student.eskiPcNolari || []))
   const [localPcNo, setLocalPcNo] = useState(student.pcNo || '')
 
   useEffect(() => {
@@ -534,7 +534,7 @@ function ExpandedCardOverlay({
       // Sadece form güncellendiğinde, ancak local input formla uyumluysa güncellesin
       // Bu sayede kullanıcı yazarken arkaplan senkronizasyonu yazdığını aniden silmez
       setFormPcNo(student.pcNo || '')
-      setFormEski(dedupeEskiPcNolari(student.eskiPcNolari || []))
+      setFormEski(eskiPcNolariForDisplay(student.pcNo, student.eskiPcNolari || []))
       setLocalPcNo(prev => {
         if (prev === formPcNo) return student.pcNo || '';
         return prev; // Kullanıcı şu an yazıyor, ellemeyelim
@@ -556,6 +556,7 @@ function ExpandedCardOverlay({
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const startPos = useRef({ x: 0, y: 0 })
   const pIdRef = useRef<number | null>(null)
+  const pcDragActivatedRef = useRef(false)
 
   const updateCardStudent = (newPcNo: string, newEski: string[]) => {
     setFormPcNo(newPcNo)
@@ -568,10 +569,21 @@ function ExpandedCardOverlay({
   }
 
   const handlePcPointerDown = (e: React.PointerEvent) => {
-    if (!formPcNo) return
+    // Fare: normal metin düzenleme; sürükleme yalnızca dokunmatik uzun basma
+    if (e.pointerType === 'mouse') return
+
+    e.stopPropagation()
+    pcDragActivatedRef.current = false
+
+    if (!formPcNo) {
+      requestAnimationFrame(() => pcInputRef.current?.focus())
+      return
+    }
+
     startPos.current = { x: e.clientX, y: e.clientY }
     setGhostPos({ x: e.clientX, y: e.clientY })
     longPressTimer.current = setTimeout(() => {
+      pcDragActivatedRef.current = true
       pcInputRef.current?.blur()
       pIdRef.current = e.pointerId
       pcWrapRef.current?.setPointerCapture(e.pointerId)
@@ -581,6 +593,8 @@ function ExpandedCardOverlay({
   }
 
   const handlePcPointerMove = (e: React.PointerEvent) => {
+    if (e.pointerType === 'mouse') return
+    e.stopPropagation()
     if (!pcDragReady && longPressTimer.current) {
       if (Math.abs(e.clientX - startPos.current.x) > MOVE_THRESHOLD || Math.abs(e.clientY - startPos.current.y) > MOVE_THRESHOLD) {
         cancelLongPress()
@@ -597,19 +611,26 @@ function ExpandedCardOverlay({
     }
   }
 
-  const handlePcPointerUp = () => {
+  const handlePcPointerUp = (e: React.PointerEvent) => {
+    if (e.pointerType === 'mouse') return
+    e.stopPropagation()
     cancelLongPress()
     if (pIdRef.current !== null) {
       try { pcWrapRef.current?.releasePointerCapture(pIdRef.current) } catch { /* */ }
       pIdRef.current = null
     }
+    const didDrag = pcDragActivatedRef.current
     if (pcDragReady && isDragOver && formPcNo) {
-      updateCardStudent('', [formPcNo, ...formEski.filter((p) => p !== formPcNo)])
+      updateCardStudent('', dedupeEskiPcNolari(formEski, formPcNo))
       setLocalPcNo('')
     }
     setPcDragReady(false)
     setPcDragging(false)
     setIsDragOver(false)
+    pcDragActivatedRef.current = false
+    if (!didDrag) {
+      requestAnimationFrame(() => pcInputRef.current?.focus())
+    }
   }
 
   const handlePcNoBlurOrEnter = (val: string): boolean => {
@@ -625,7 +646,11 @@ function ExpandedCardOverlay({
         return true;
       }
     }
-    updateCardStudent(newPcNo, formEski);
+    const nextEski =
+      formPcNo.trim() && !samePcNo(newPcNo, formPcNo)
+        ? dedupeEskiPcNolari(formEski, formPcNo)
+        : eskiPcNolariForDisplay(newPcNo, formEski)
+    updateCardStudent(newPcNo, nextEski);
     return false;
   };
 
@@ -796,25 +821,25 @@ function ExpandedCardOverlay({
                 <Label className="text-xs">PC No</Label>
                 <div
                   ref={pcWrapRef}
-                  onPointerDown={handlePcPointerDown}
-                  onPointerMove={handlePcPointerMove}
-                  onPointerUp={handlePcPointerUp}
-                  onPointerCancel={handlePcPointerUp}
                   style={pcDragReady && !pcDragging ? { animation: 'pc-wiggle 0.4s ease-in-out infinite' } : undefined}
-                  className={`relative flex items-center touch-none transition-shadow rounded-md ${pcDragReady ? 'shadow-lg ring-2 ring-primary' : ''}`}
+                  className={`relative flex items-center transition-shadow rounded-md ${pcDragReady ? 'shadow-lg ring-2 ring-primary' : ''}`}
                 >
                   <Input
                     ref={pcInputRef}
                     value={localPcNo}
                     onChange={(e) => setLocalPcNo(e.target.value)}
                     onBlur={(e) => handlePcNoBlurOrEnter(e.target.value)}
+                    onPointerDown={handlePcPointerDown}
+                    onPointerMove={handlePcPointerMove}
+                    onPointerUp={handlePcPointerUp}
+                    onPointerCancel={handlePcPointerUp}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         handlePcNoBlurOrEnter(e.currentTarget.value)
                         pcInputRef.current?.blur()
                       }
                     }}
-                    className={`h-8 font-bold px-1.5 text-center ${pcDragReady ? 'pointer-events-none' : ''}`}
+                    className={`h-8 font-bold px-1.5 text-center ${pcDragging ? 'pointer-events-none' : ''}`}
                   />
                   {localPcNo !== formPcNo && !pcDragReady && (
                     <button
@@ -889,7 +914,10 @@ function ExpandedCardOverlay({
         onConfirm={() => {
           if (pcConflictConfirm) {
             updateStudent(pcConflictConfirm.conflictStudent.id, { pcNo: '' });
-            updateCardStudent(pcConflictConfirm.newPcNo, formEski);
+            const nextEski = formPcNo.trim()
+              ? dedupeEskiPcNolari(formEski, formPcNo)
+              : formEski
+            updateCardStudent(pcConflictConfirm.newPcNo, nextEski);
             setLocalPcNo(pcConflictConfirm.newPcNo);
             setPcConflictConfirm(null);
             toast({

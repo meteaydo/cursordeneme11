@@ -23,9 +23,14 @@ export function formatClassName(str: string): string {
   return str.replace(/[^a-zA-Z0-9]/g, '').toUpperCase()
 }
 
-/** PC22 ve 22 aynı numara sayılsın */
+/** PC22, 22 ve PC07 / 7 aynı numara sayılsın */
 export function pcNoKey(value: string): string {
-  return formatClassName(value).replace(/^PC/, '')
+  const key = formatClassName(value).replace(/^PC/, '')
+  if (/^\d+$/.test(key)) {
+    const trimmed = key.replace(/^0+/, '')
+    return trimmed || '0'
+  }
+  return key
 }
 
 export function samePcNo(a?: string, b?: string): boolean {
@@ -45,6 +50,11 @@ export function dedupeEskiPcNolari(list: string[], extra?: string): string[] {
     result.push(value)
   }
   return result
+}
+
+/** Aktif PC numarasını eski listeden çıkar; yalnızca gerçekten değiştirilmiş numaralar kalır */
+export function eskiPcNolariForDisplay(currentPc: string | undefined, list: string[]): string[] {
+  return dedupeEskiPcNolari(list).filter((p) => !samePcNo(p, currentPc || ''))
 }
 
 const CLASS_COLORS = [
