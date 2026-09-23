@@ -65,9 +65,33 @@ export interface Student {
   bep?: boolean
   bepNotu?: string
   bepPlaniYapildi?: boolean
+  mebBilgiFormu?: MebOgrenciBilgiFormu
   behaviorStars?: { yellow: number; purple: number }
   behaviorLogs?: BehaviorLog[]
   createdAt: Date
+}
+
+export interface MebOgrenciBilgiFormu {
+  dogumYeriTarihi?: string
+  okulOncesiEgitim?: string
+  surekliHastalik?: string
+  ilacVeyaCihaz?: string
+  hoslandigi?: string
+  dersDisiFaaliyet?: string
+  okulEvDegisikligi?: string
+  bilgisayarKullanim?: string
+  telefonKullanim?: string
+  etkiOlay?: string
+  veliAdSoyad?: string
+  veliYakinlik?: string
+  veliTelefon?: string
+  veliEgitim?: string
+  veliMeslek?: string
+  kacKardes?: string
+  kacinciCocuk?: string
+  okulaGidenKardes?: string
+  aileHastalikEngel?: string
+  evdeKimlerYasiyor?: string
 }
 
 export interface Application {
@@ -109,6 +133,34 @@ export interface SchoolClass {
   createdAt: Date
 }
 
+export type AttendanceMark = 'D' | 'G'
+
+export type ClassAttendanceMarks = Record<string, AttendanceMark>
+
+export interface ClassAttendance {
+  id: string
+  teacherId: string
+  sinifAdi: string
+  date: string
+  time: string
+  /** Yoklama saatinin ders programındaki ders saati (1–14) */
+  lessonPeriod?: number
+  marks: ClassAttendanceMarks
+}
+
+export interface Timetable {
+  id: string
+  teacherName: string
+  ownerId: string
+  startTime: string
+  lessonMinutes: number
+  breakMinutes: number
+  lunchMinutes: number
+  lessonsPerDay: number
+  cells: Record<string, string>
+  createdAt: Date
+}
+
 export interface ClassStudent {
   id: string
   classId: string
@@ -129,9 +181,51 @@ export interface StudentFormData {
   bep?: boolean
   bepNotu?: string
   bepPlaniYapildi?: boolean
+  mebBilgiFormu?: MebOgrenciBilgiFormu
   foto?: string
   behaviorStars?: { yellow: number; purple: number }
   behaviorLogs?: BehaviorLog[]
+}
+
+export interface StudentPortalScore {
+  appId: string
+  ad: string
+  tarih: string
+  puan: number | null
+  devamsiz?: boolean
+  kisaNot?: string
+}
+
+export interface StudentPortalBehaviorLog {
+  id: string
+  type: 'yellow' | 'purple'
+  note: string
+  date: string
+}
+
+export interface StudentPortalPublic {
+  okulNo: string
+  adSoyad: string
+  dersAdi: string
+  sinifAdi: string
+  behaviorStars?: { yellow: number; purple: number }
+  behaviorLogs?: StudentPortalBehaviorLog[]
+  scores?: StudentPortalScore[]
+  updatedAt?: Date
+}
+
+export interface StudentDashboardCourse {
+  courseId: string
+  studentId: string
+  dersAdi: string
+  sinifAdi: string
+}
+
+export interface StudentDashboard {
+  no: string
+  adSoyad: string
+  teacherIds: string[]
+  courses: StudentDashboardCourse[]
 }
 
 /** Paylaşılmış oturma planı — ayrı Firestore koleksiyonunda saklanır */

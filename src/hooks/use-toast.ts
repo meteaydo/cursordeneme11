@@ -18,12 +18,17 @@ function dispatch(action: ToastData[]) {
   })
 }
 //
-export function toast({ title, description, variant = 'default' }: Omit<ToastData, 'id'>) {
+export function toast({
+  title,
+  description,
+  variant = 'default',
+  duration = 2000,
+}: Omit<ToastData, 'id'> & { duration?: number }) {
   const id = String(++toastCount)
   dispatch([...memoryState, { id, title, description, variant }])
   setTimeout(() => {
     dispatch(memoryState.filter((t) => t.id !== id))
-  }, 2000)
+  }, duration)
 }
 
 export function dismiss(id: string) {

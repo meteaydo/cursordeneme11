@@ -52,10 +52,10 @@ export function AnnualPlanBanner({ plan, index: indexProp, onIndexChange }: Annu
       : `${item.hafta} · ${formatPlanRange(item)}`
 
   return (
-    <div className="-mx-4 px-2 py-2 border-b border-sky-200/80 bg-sky-100 flex items-center gap-0.5">
+    <div className="-mx-4 px-2 py-2 border-b border-sky-100 bg-sky-50 flex items-center gap-0.5">
       <button
         type="button"
-        className="shrink-0 h-9 w-9 flex items-center justify-center rounded-md text-sky-800 hover:bg-sky-100 disabled:opacity-30 disabled:pointer-events-none"
+        className="shrink-0 h-9 w-9 flex items-center justify-center rounded-md text-sky-800 hover:bg-sky-100/70 disabled:opacity-30 disabled:pointer-events-none"
         disabled={index <= 0}
         onClick={() => setIndex(index - 1)}
         aria-label="Önceki hafta"
@@ -79,7 +79,7 @@ export function AnnualPlanBanner({ plan, index: indexProp, onIndexChange }: Annu
       </div>
       <button
         type="button"
-        className="shrink-0 h-9 w-9 flex items-center justify-center rounded-md text-sky-800 hover:bg-sky-100 disabled:opacity-30 disabled:pointer-events-none"
+        className="shrink-0 h-9 w-9 flex items-center justify-center rounded-md text-sky-800 hover:bg-sky-100/70 disabled:opacity-30 disabled:pointer-events-none"
         disabled={index >= items.length - 1}
         onClick={() => setIndex(index + 1)}
         aria-label="Sonraki hafta"

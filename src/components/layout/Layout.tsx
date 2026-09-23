@@ -16,6 +16,8 @@ interface LayoutProps {
   onBackClick?: () => void
   /** Mobilde iki satırlı başlık (ör. ders + uygulama) için header yüksekliği */
   stackedMobileTitle?: boolean
+  hideNav?: boolean
+  wide?: boolean
 }
 
 export function Layout({ 
@@ -30,6 +32,8 @@ export function Layout({
   backTitle,
   onBackClick,
   stackedMobileTitle,
+  hideNav,
+  wide,
 }: LayoutProps) {
   const [spotlightOpen, setSpotlightOpen] = useState(false)
 
@@ -47,11 +51,15 @@ export function Layout({
         onBackClick={onBackClick}
         stackedMobileTitle={stackedMobileTitle}
       />
-      <main className="flex-1 container max-w-2xl mx-auto px-4 py-4 pb-24">
+      <main className={`flex-1 container mx-auto px-4 py-4 ${wide ? 'max-w-6xl' : 'max-w-2xl'} ${hideNav ? 'pb-8' : 'pb-28'}`}>
         {children}
       </main>
-      <BottomNav onSearchOpen={() => setSpotlightOpen(true)} />
-      <SpotlightDialog open={spotlightOpen} onOpenChange={setSpotlightOpen} />
+      {!hideNav && (
+        <>
+          <BottomNav onSearchOpen={() => setSpotlightOpen(true)} />
+          <SpotlightDialog open={spotlightOpen} onOpenChange={setSpotlightOpen} />
+        </>
+      )}
     </div>
   )
 }

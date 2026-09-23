@@ -1,9 +1,15 @@
 import { Navigate } from 'react-router-dom'
-import { useAuth } from '@/contexts/AuthContext'
+import { useAuth, type AppRole } from '@/contexts/AuthContext'
 import { Loader2 } from 'lucide-react'
 
-export function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth()
+export function ProtectedRoute({
+  children,
+  role: requiredRole = 'teacher',
+}: {
+  children: React.ReactNode
+  role?: AppRole
+}) {
+  const { user, role, loading } = useAuth()
 
   if (loading) {
     return (
@@ -14,6 +20,13 @@ export function ProtectedRoute({ children }: { children: React.ReactNode }) {
   }
 
   if (!user) return <Navigate to="/login" replace />
+
+  if (requiredRole === 'student' && role !== 'student') {
+    return <Navigate to="/courses" replace />
+  }
+  if (requiredRole === 'teacher' && role === 'student') {
+    return <Navigate to="/ogrenci" replace />
+  }
 
   return <>{children}</>
 }

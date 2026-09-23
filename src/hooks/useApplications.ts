@@ -12,6 +12,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import type { Application, Score } from '@/types'
+import { schedulePortalSync } from '@/lib/studentPortal'
 
 export function useApplications(courseId: string) {
   const [applications, setApplications] = useState<Application[]>([])
@@ -99,7 +100,9 @@ export function useApplications(courseId: string) {
       doc(db, 'courses', courseId, 'applications', appId, 'scores', studentId),
       { studentId, ...fields },
       { merge: true },
-    ).catch(console.error)
+    )
+      .then(() => schedulePortalSync(courseId, studentId))
+      .catch(console.error)
   }
 
   return { applications, loading, addApplication, updateApplication, deleteApplication, getScores, setScore }

@@ -6,12 +6,16 @@ import {
   createUserWithEmailAndPassword,
   signInWithPopup,
   signInWithRedirect,
+  signInWithCustomToken,
   getRedirectResult,
   signOut,
   updateProfile,
 } from 'firebase/auth'
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore'
 import { auth, db, googleProvider } from '@/lib/firebase'
+import { callStudentLogin } from '@/lib/studentFunctions'
+
+export type AppRole = 'teacher' | 'student'
 
 function firebaseErrorMessage(err: unknown): string {
   if (err && typeof err === 'object' && 'code' in err) {
@@ -32,17 +36,30 @@ async function saveUserToFirestore(u: User) {
 
 interface AuthContextType {
   user: User | null
+  role: AppRole | null
+  okulNo: string | null
   loading: boolean
   signIn: (email: string, password: string) => Promise<void>
   signUp: (email: string, password: string, displayName: string) => Promise<void>
   signInWithGoogle: () => Promise<void>
+  signInStudent: (no: string, pin: string) => Promise<void>
   logout: () => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
 
+async function readRole(u: User): Promise<{ role: AppRole; okulNo: string | null }> {
+  const token = await u.getIdTokenResult()
+  if (token.claims.role === 'student') {
+    return { role: 'student', okulNo: typeof token.claims.okulNo === 'string' ? token.claims.okulNo : null }
+  }
+  return { role: 'teacher', okulNo: null }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null)
+  const [role, setRole] = useState<AppRole | null>(null)
+  const [okulNo, setOkulNo] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
@@ -55,8 +72,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       })
 
     const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u)
-      setLoading(false)
+      if (!u) {
+        setUser(null)
+        setRole(null)
+        setOkulNo(null)
+        setLoading(false)
+        return
+      }
+      readRole(u)
+        .then(({ role: nextRole, okulNo: nextNo }) => {
+          setUser(u)
+          setRole(nextRole)
+          setOkulNo(nextNo)
+        })
+        .catch(() => {
+          setUser(u)
+          setRole('teacher')
+          setOkulNo(null)
+        })
+        .finally(() => setLoading(false))
     })
     return unsubscribe
   }, [])
@@ -86,12 +120,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const signInStudent = async (no: string, pin: string) => {
+    const { token } = await callStudentLogin({ no, pin })
+    await signInWithCustomToken(auth, token)
+  }
+
   const logout = async () => {
     await signOut(auth)
   }
 
   return (
-    <AuthContext.Provider value={{ user, loading, signIn, signUp, signInWithGoogle, logout }}>
+    <AuthContext.Provider
+      value={{ user, role, okulNo, loading, signIn, signUp, signInWithGoogle, signInStudent, logout }}
+    >
       {children}
     </AuthContext.Provider>
   )

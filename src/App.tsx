@@ -10,8 +10,31 @@ import { SeatingPlanPage } from '@/pages/SeatingPlanPage'
 import ClassesPage from '@/pages/ClassesPage'
 import SchoolListsPage from '@/pages/SchoolListsPage'
 import ClassDetailPage from '@/pages/ClassDetailPage'
+import ClassAttendancePage from '@/pages/ClassAttendancePage'
+import AttendanceHistoryPage from '@/pages/AttendanceHistoryPage'
 import AnnualPlansPage from '@/pages/AnnualPlansPage'
+import TimetablesPage from '@/pages/TimetablesPage'
+import TimetableEditorPage from '@/pages/TimetableEditorPage'
+import ProfilePage from '@/pages/ProfilePage'
+import StudentHomePage from '@/pages/student/StudentHomePage'
+import StudentCoursePage from '@/pages/student/StudentCoursePage'
 import PWABadge from '@/components/PWABadge'
+import { useAuth } from '@/contexts/AuthContext'
+import { Loader2 } from 'lucide-react'
+
+function HomeRedirect() {
+  const { user, role, loading } = useAuth()
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    )
+  }
+  if (!user) return <Navigate to="/login" replace />
+  if (role === 'student') return <Navigate to="/ogrenci" replace />
+  return <Navigate to="/courses" replace />
+}
 
 export default function App() {
   return (
@@ -60,6 +83,22 @@ export default function App() {
             }
           />
           <Route
+            path="/classes/:sinifAdi/yoklamalar"
+            element={
+              <ProtectedRoute>
+                <AttendanceHistoryPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/classes/:sinifAdi/yoklama"
+            element={
+              <ProtectedRoute>
+                <ClassAttendancePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/classes/:sinifAdi"
             element={
               <ProtectedRoute>
@@ -84,6 +123,26 @@ export default function App() {
             }
           />
           <Route
+            path="/yoklamalar"
+            element={<Navigate to="/classes" replace />}
+          />
+          <Route
+            path="/ders-programlari"
+            element={
+              <ProtectedRoute>
+                <TimetablesPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ders-programlari/:id"
+            element={
+              <ProtectedRoute>
+                <TimetableEditorPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
             path="/annual-plans"
             element={
               <ProtectedRoute>
@@ -91,7 +150,31 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-          <Route path="*" element={<Navigate to="/courses" replace />} />
+          <Route
+            path="/profil"
+            element={
+              <ProtectedRoute>
+                <ProfilePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ogrenci"
+            element={
+              <ProtectedRoute role="student">
+                <StudentHomePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ogrenci/:courseId/:studentId"
+            element={
+              <ProtectedRoute role="student">
+                <StudentCoursePage />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="*" element={<HomeRedirect />} />
         </Routes>
         <Toaster />
         <PWABadge />

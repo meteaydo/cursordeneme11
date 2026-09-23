@@ -16,6 +16,7 @@ import {
 import { db } from '@/lib/firebase'
 import type { Student, StudentFormData } from '@/types'
 import { dedupeEskiPcNolari, pcNoKey, samePcNo } from '@/lib/utils'
+import { schedulePortalSync } from '@/lib/studentPortal'
 
 export function useStudents(courseId: string) {
   const [students, setStudents] = useState<Student[]>([])
@@ -28,7 +29,8 @@ export function useStudents(courseId: string) {
       setLoading(false)
       return
     }
-    
+
+    setLoading(true)
     const q = query(
       collection(db, 'courses', courseId, 'students'),
     )
@@ -141,7 +143,7 @@ export function useStudents(courseId: string) {
     await updateDoc(studentRef, {
       [`behaviorStars.${type}`]: increment(1),
       behaviorLogs: arrayUnion(log)
-    }).catch(async (error) => {
+    }).then(() => schedulePortalSync(courseId, studentId)).catch(async (error) => {
       // If behaviorStars field doesn't exist at all, some older environments might fail.
       // Although modern Firestore handles this, let's add a fallback if needed.
       console.error('addBehaviorStar error:', error)
@@ -154,7 +156,7 @@ export function useStudents(courseId: string) {
     await updateDoc(studentRef, {
       [`behaviorStars.${log.type}`]: increment(-1),
       behaviorLogs: arrayRemove(log)
-    }).catch(console.error)
+    }).then(() => schedulePortalSync(courseId, studentId)).catch(console.error)
   }
 
   const updateBehaviorLog = async (studentId: string, oldLog: any, updatedLog: any) => {
@@ -175,7 +177,7 @@ export function useStudents(courseId: string) {
     
     await updateDoc(studentRef, {
       behaviorLogs: arrayUnion(updatedLog)
-    }).catch(console.error)
+    }).then(() => schedulePortalSync(courseId, studentId)).catch(console.error)
   }
 
   const deleteStudent = async (studentId: string) => {

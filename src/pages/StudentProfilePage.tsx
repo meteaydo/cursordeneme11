@@ -22,6 +22,8 @@ import { format } from 'date-fns'
 import { tr } from 'date-fns/locale'
 import { toast } from '@/hooks/use-toast'
 import type { StudentFormData } from '@/types'
+import { MebBilgiFormuCard } from '@/components/MebBilgiFormuCard'
+import { StudentPinCard } from '@/components/StudentPinCard'
 import { uploadToR2 } from '@/lib/r2'
 import imageCompression from 'browser-image-compression'
 import { formatClassName, dedupeEskiPcNolari, samePcNo } from '@/lib/utils'
@@ -209,6 +211,7 @@ export default function StudentProfilePage() {
         bep: student.bep ?? false,
         bepNotu: student.bepNotu ?? '',
         bepPlaniYapildi: student.bepPlaniYapildi ?? false,
+        mebBilgiFormu: student.mebBilgiFormu ?? {},
         foto: student.foto ?? '',
       })
       setLocalPcNo(student.pcNo || '')
@@ -595,14 +598,18 @@ export default function StudentProfilePage() {
                 className="group flex items-center justify-center gap-1.5 cursor-pointer hover:bg-accent/50 py-0.5 px-2 rounded-md transition-colors text-muted-foreground"
                 onClick={() => setEditingField('no')}
               >
-                <span className="text-sm font-medium">No: {form.no || 'Belirtilmemiş'}</span>
+                <span className="text-sm font-medium">
+                  No: {form.no || 'Belirtilmemiş'}
+                  {course?.sinifAdi && (
+                    <span className="text-xs font-normal text-muted-foreground/90 ml-1.5">
+                      · {formatClassName(course.sinifAdi)}
+                    </span>
+                  )}
+                </span>
                 <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
             )}
 
-            {course && (
-              <p className="text-xs text-muted-foreground mt-1">{course.sinifAdi}</p>
-            )}
           </div>
         </div>
 
@@ -861,107 +868,106 @@ export default function StudentProfilePage() {
           </CardContent>
         </Card>
 
-        {/* Form - BEP ve Özel Durumlar */}
+        {/* Form - BEP */}
         <Card className="border-purple-400/80 border-2 bg-purple-50/10 shadow-md">
-          <CardContent className="p-4 space-y-4">
-            {/* BEP Satırı */}
-            <div className="space-y-1.5">
-              <Label>BEP</Label>
-              <div className="flex items-center gap-3">
-                <label className="flex items-center gap-1.5 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={form.bep ?? false}
-                    onChange={(e) => setForm({ ...form, bep: e.target.checked })}
-                    className="w-4 h-4 rounded border-border accent-primary"
-                  />
-                  <span className="text-sm">BEP</span>
-                </label>
-                <Input
-                  placeholder="BEP notu..."
-                  value={form.bepNotu ?? ''}
-                  onChange={(e) => setForm({ ...form, bepNotu: e.target.value })}
-                  disabled={!form.bep}
-                  className="h-8 text-sm flex-1"
+          <CardContent className="p-4 space-y-1.5">
+            <Label>BEP</Label>
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={form.bep ?? false}
+                  onChange={(e) => setForm({ ...form, bep: e.target.checked })}
+                  className="w-4 h-4 rounded border-border accent-primary"
                 />
-                <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
-                  <input
-                    type="checkbox"
-                    checked={form.bepPlaniYapildi ?? false}
-                    onChange={(e) => setForm({ ...form, bepPlaniYapildi: e.target.checked })}
-                    disabled={!form.bep}
-                    className="w-4 h-4 rounded border-border accent-primary"
-                  />
-                  <span className="text-sm whitespace-nowrap">Planı Yapıldı</span>
+                <span className="text-sm">BEP</span>
+              </label>
+              <Input
+                placeholder="BEP notu..."
+                value={form.bepNotu ?? ''}
+                onChange={(e) => setForm({ ...form, bepNotu: e.target.value })}
+                disabled={!form.bep}
+                className="h-8 text-sm flex-1"
+              />
+              <label className="flex items-center gap-1.5 cursor-pointer shrink-0">
+                <input
+                  type="checkbox"
+                  checked={form.bepPlaniYapildi ?? false}
+                  onChange={(e) => setForm({ ...form, bepPlaniYapildi: e.target.checked })}
+                  disabled={!form.bep}
+                  className="w-4 h-4 rounded border-border accent-primary"
+                />
+                <span className="text-sm whitespace-nowrap">Planı Yapıldı</span>
+              </label>
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Özel Durum Notları */}
+        <Card className="border-slate-300/80 border-2 bg-slate-50/30 shadow-md">
+          <CardContent className="p-4 space-y-1.5">
+            <div className="flex items-center justify-between">
+              <Label>Özel Durum Notları</Label>
+              <div className="flex gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => openCamera('notes')}
+                  className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-input bg-background hover:bg-accent transition-colors"
+                  title="Kamera ile fotoğraf ekle"
+                >
+                  {notesPhotoUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+                </button>
+                <label className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-input bg-background hover:bg-accent transition-colors cursor-pointer" title="Dosyadan fotoğraf ekle">
+                  <Upload className="h-3.5 w-3.5" />
+                  <input type="file" accept="image/*" className="hidden" onChange={handleNotesFileUpload} />
                 </label>
               </div>
             </div>
-
-            {/* Özel Durum Notları */}
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <Label>Özel Durum Notları</Label>
-                <div className="flex gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => openCamera('notes')}
-                    className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-input bg-background hover:bg-accent transition-colors"
-                    title="Kamera ile fotoğraf ekle"
-                  >
-                    {notesPhotoUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
-                  </button>
-                  <label className="h-7 w-7 inline-flex items-center justify-center rounded-md border border-input bg-background hover:bg-accent transition-colors cursor-pointer" title="Dosyadan fotoğraf ekle">
-                    <Upload className="h-3.5 w-3.5" />
-                    <input type="file" accept="image/*" className="hidden" onChange={handleNotesFileUpload} />
-                  </label>
-                </div>
-              </div>
-              <Textarea
-                value={form.ozelDurumNotlari}
-                onChange={(e) => setForm({ ...form, ozelDurumNotlari: e.target.value })}
-                placeholder="Gözlemler, notlar..."
-                rows={3}
-              />
-              {/* Not fotoğrafları önizleme */}
-              {(form.ozelDurumFotolari ?? []).length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-1">
-                  {(form.ozelDurumFotolari ?? []).map((url, i) => {
-                    const isZoomed = zoomedNotePhotoIndex === i
-                    return (
-                      <div key={i} className="relative group">
-                        <div
-                          className="w-16 h-16 border border-border rounded-lg overflow-hidden cursor-zoom-in"
-                          onClick={() => setZoomedNotePhotoIndex(i)}
-                          title="Büyüt"
-                        >
-                          <OfflineImage
-                            src={url}
-                            alt={`Not fotoğrafı ${i + 1}`}
-                            className="w-full h-full object-cover"
-                          />
-                        </div>
-                        <Dialog open={isZoomed} onOpenChange={(open) => !open && setZoomedNotePhotoIndex(null)}>
-                          <DialogContent className="max-w-[100vw] w-screen h-[100dvh] p-0 border-none bg-black/95 shadow-none flex items-center justify-center [&>button]:text-white [&>button]:bg-black/50" aria-describedby={undefined}>
-                            <DialogTitle className="hidden">Not Fotoğrafı</DialogTitle>
-                            <OfflineImage src={url} alt={`Not fotoğrafı ${i + 1}`} className="w-full h-full object-contain" />
-                          </DialogContent>
-                        </Dialog>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            setNotePhotoToDeleteIdx(i)
-                          }}
-                          className={`absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive text-white rounded-full flex items-center justify-center transition-opacity opacity-0 group-hover:opacity-100`}
-                        >
-                          <X className="h-3 w-3" />
-                        </button>
+            <Textarea
+              value={form.ozelDurumNotlari}
+              onChange={(e) => setForm({ ...form, ozelDurumNotlari: e.target.value })}
+              placeholder="Gözlemler, notlar..."
+              rows={3}
+            />
+            {/* Not fotoğrafları önizleme */}
+            {(form.ozelDurumFotolari ?? []).length > 0 && (
+              <div className="flex flex-wrap gap-2 mt-1">
+                {(form.ozelDurumFotolari ?? []).map((url, i) => {
+                  const isZoomed = zoomedNotePhotoIndex === i
+                  return (
+                    <div key={i} className="relative group">
+                      <div
+                        className="w-16 h-16 border border-border rounded-lg overflow-hidden cursor-zoom-in"
+                        onClick={() => setZoomedNotePhotoIndex(i)}
+                        title="Büyüt"
+                      >
+                        <OfflineImage
+                          src={url}
+                          alt={`Not fotoğrafı ${i + 1}`}
+                          className="w-full h-full object-cover"
+                        />
                       </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
+                      <Dialog open={isZoomed} onOpenChange={(open) => !open && setZoomedNotePhotoIndex(null)}>
+                        <DialogContent className="max-w-[100vw] w-screen h-[100dvh] p-0 border-none bg-black/95 shadow-none flex items-center justify-center [&>button]:text-white [&>button]:bg-black/50" aria-describedby={undefined}>
+                          <DialogTitle className="hidden">Not Fotoğrafı</DialogTitle>
+                          <OfflineImage src={url} alt={`Not fotoğrafı ${i + 1}`} className="w-full h-full object-contain" />
+                        </DialogContent>
+                      </Dialog>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          setNotePhotoToDeleteIdx(i)
+                        }}
+                        className={`absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive text-white rounded-full flex items-center justify-center transition-opacity opacity-0 group-hover:opacity-100`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
 
             {/* Not Fotoğrafı Silme Onayı */}
             <ConfirmDialog
@@ -979,20 +985,29 @@ export default function StudentProfilePage() {
                 }
               }}
             />
-
-            {/* Davranış Silme Onayı */}
-            <ConfirmDialog
-              open={behaviorToDelete !== null}
-              onOpenChange={(isOpen) => !isOpen && setBehaviorToDelete(null)}
-              title="Davranış Kaydını Sil"
-              description="Bu davranış kaydını silmek istediğinize emin misiniz? Bu işlem geri alınamaz."
-              confirmText="Sil"
-              variant="destructive"
-              onConfirm={handleDeleteBehaviorLog}
-            />
-
           </CardContent>
         </Card>
+
+        <StudentPinCard courseId={cId} studentId={sId} ogrenciNo={form.no} />
+
+        <MebBilgiFormuCard
+          value={form.mebBilgiFormu}
+          onChange={(mebBilgiFormu) => setForm({ ...form, mebBilgiFormu })}
+          adSoyad={form.adSoyad}
+          ogrenciNo={form.no}
+          sinifAdi={course ? formatClassName(course.sinifAdi) : ''}
+        />
+
+        {/* Davranış Silme Onayı */}
+        <ConfirmDialog
+          open={behaviorToDelete !== null}
+          onOpenChange={(isOpen) => !isOpen && setBehaviorToDelete(null)}
+          title="Davranış Kaydını Sil"
+          description="Bu davranış kaydını silmek istediğinize emin misiniz? Bu işlem geri alınamaz."
+          confirmText="Sil"
+          variant="destructive"
+          onConfirm={handleDeleteBehaviorLog}
+        />
 
         {/* Uygulama Puanları Grafiği */}
         <Card className="border-indigo-400/80 border-2 bg-indigo-50/10 shadow-md">

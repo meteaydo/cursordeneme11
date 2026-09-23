@@ -8,6 +8,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { BookOpen, Eye, EyeOff, Loader2 } from 'lucide-react'
 
 import versionRaw from '../../version.md?raw'
+import { callableErrorMessage } from '@/lib/studentFunctions'
 
 type Mode = 'login' | 'register'
 
@@ -22,7 +23,8 @@ function completeEmailAddress(raw: string): string {
 
 export default function LoginPage() {
   const navigate = useNavigate()
-  const { user, loading: authLoading, signIn, signUp, signInWithGoogle } = useAuth()
+  const { user, role, loading: authLoading, signIn, signUp, signInWithGoogle, signInStudent } = useAuth()
+  const [audience, setAudience] = useState<'teacher' | 'student'>('teacher')
   const [mode, setMode] = useState<Mode>('login')
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -30,14 +32,17 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [showPassword, setShowPassword] = useState(false)
+  const [studentNo, setStudentNo] = useState('')
+  const [studentPin, setStudentPin] = useState('')
 
   // Get last line of version.md
   const versionLines = versionRaw.trim().split('\n')
   const lastVersion = versionLines[versionLines.length - 1]
 
   useEffect(() => {
-    if (user) navigate('/courses', { replace: true })
-  }, [user, navigate])
+    if (!user) return
+    navigate(role === 'student' ? '/ogrenci' : '/courses', { replace: true })
+  }, [user, role, navigate])
 
   const handleEmailChange = (value: string) => {
     const firstAtTyped = !email.includes('@') && value.endsWith('@') && value.indexOf('@') === value.length - 1
@@ -87,6 +92,20 @@ export default function LoginPage() {
     }
   }
 
+  const handleStudentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+    try {
+      await signInStudent(studentNo.trim(), studentPin.trim())
+      navigate('/ogrenci')
+    } catch (err: unknown) {
+      setError(callableErrorMessage(err))
+    } finally {
+      setLoading(false)
+    }
+  }
+
   const handleGoogle = async () => {
     setError('')
     setLoading(true)
@@ -122,12 +141,70 @@ export default function LoginPage() {
           <div className="w-16 h-16 bg-primary rounded-2xl flex items-center justify-center mb-3 shadow-lg">
             <BookOpen className="h-8 w-8 text-white" />
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Öğretmen Yardımcı</h1>
-          <p className="text-sm text-muted-foreground mt-1">Ders ve uygulama takip sistemi</p>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {audience === 'student' ? 'Öğrenci Paneli' : 'Öğretmen Yardımcı'}
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            {audience === 'student' ? 'Numara ve PIN ile giriş' : 'Ders ve uygulama takip sistemi'}
+          </p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-1 mb-3 p-1 rounded-xl bg-white/70 border border-slate-200">
+          <button
+            type="button"
+            className={`h-9 rounded-lg text-sm font-semibold ${audience === 'teacher' ? 'bg-primary text-white' : 'text-slate-600'}`}
+            onClick={() => { setAudience('teacher'); setError('') }}
+          >
+            Öğretmen
+          </button>
+          <button
+            type="button"
+            className={`h-9 rounded-lg text-sm font-semibold ${audience === 'student' ? 'bg-primary text-white' : 'text-slate-600'}`}
+            onClick={() => { setAudience('student'); setError('') }}
+          >
+            Öğrenci
+          </button>
         </div>
 
         <Card className="shadow-lg">
           <CardContent className="pt-6">
+            {audience === 'student' ? (
+              <form onSubmit={handleStudentSubmit} className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="studentNo">Öğrenci no</Label>
+                  <Input
+                    id="studentNo"
+                    inputMode="numeric"
+                    autoComplete="username"
+                    placeholder="Okul nosu"
+                    value={studentNo}
+                    onChange={(e) => setStudentNo(e.target.value)}
+                    required
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="studentPin">PIN</Label>
+                  <Input
+                    id="studentPin"
+                    type="password"
+                    inputMode="numeric"
+                    autoComplete="current-password"
+                    placeholder="PIN"
+                    value={studentPin}
+                    onChange={(e) => setStudentPin(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                    required
+                  />
+                </div>
+                {error && (
+                  <p className="text-sm text-destructive bg-destructive/10 rounded-md px-3 py-2">{error}</p>
+                )}
+                <Button type="submit" className="w-full" disabled={loading}>
+                  {loading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  Giriş Yap
+                </Button>
+              </form>
+            ) : (
+            <>
             <form onSubmit={handleSubmit} className="space-y-3">
               {mode === 'register' && (
                 <div className="space-y-1.5">
@@ -238,6 +315,8 @@ export default function LoginPage() {
                 {mode === 'login' ? 'Kayıt Ol' : 'Giriş Yap'}
               </button>
             </p>
+            </>
+            )}
           </CardContent>
         </Card>
 
