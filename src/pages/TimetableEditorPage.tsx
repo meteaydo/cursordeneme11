@@ -1,6 +1,14 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type Dispatch,
+  type ReactNode,
+  type SetStateAction,
+} from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Check, ClipboardPaste, Copy, Loader2, Trash2 } from 'lucide-react'
+import { Check, ClipboardPaste, Copy, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -15,6 +23,13 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from '@/hooks/use-toast'
 import { useCourses } from '@/hooks/useCourses'
@@ -25,9 +40,11 @@ import {
   buildDaySlots,
   cellKey,
   fillEmptyCells,
+  findLessonPeriodForTime,
   type FillAxis,
 } from '@/lib/timetable'
-import { cn, formatTitleCase } from '@/lib/utils'
+import type { Course } from '@/types'
+import { cn, formatClassName, formatTitleCase } from '@/lib/utils'
 
 const CELL_GRADES = ['9', '10', '11', '12']
 const CELL_SECTIONS = ['A', 'B', 'C', 'D', 'E', 'F', 'G']
@@ -46,6 +63,28 @@ function formatCellLesson(name: string, grade: string, section: string) {
   const klass = grade && section ? `${grade}${section}` : ''
   if (title && klass) return `${title} - ${klass}`
   return title || klass
+}
+
+function courseListTitle(course: Course) {
+  return [course.dersAdi, course.sinifAdi].map((part) => (part ?? '').trim()).filter(Boolean).join(' - ')
+}
+
+function findCourseIdForCell(text: string, courses: Course[]): string | null {
+  const trimmed = text.trim()
+  if (!trimmed) return null
+  const exact = courses.find((c) => courseListTitle(c) === trimmed)
+  if (exact) return exact.id
+
+  const parsed = parseCellLesson(trimmed)
+  const cellClass = parsed.grade && parsed.section ? `${parsed.grade}${parsed.section}` : ''
+  if (!parsed.name || !cellClass) return null
+
+  const match = courses.find(
+    (c) =>
+      (c.dersAdi ?? '').trim().localeCompare(parsed.name, 'tr', { sensitivity: 'base' }) === 0 &&
+      formatClassName(c.sinifAdi ?? '') === formatClassName(cellClass),
+  )
+  return match?.id ?? null
 }
 
 function saveFailReason(error: unknown): string {
@@ -125,9 +164,95 @@ function SettingField({
   )
 }
 
+function pad(n: number) {
+  return String(n).padStart(2, '0')
+}
+
 function clamp(n: number, min: number, max: number, fallback: number) {
   if (!Number.isFinite(n)) return fallback
   return Math.min(max, Math.max(min, Math.round(n)))
+}
+
+function TimetableSettingsFields({
+  form,
+  setForm,
+}: {
+  form: FormState
+  setForm: Dispatch<SetStateAction<FormState>>
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-x-3 gap-y-3 sm:grid-cols-3">
+      <SettingField label="Öğretmen adı" htmlFor="ogretmen-dialog" className="col-span-2 sm:col-span-3">
+        <Input
+          id="ogretmen-dialog"
+          className="h-9"
+          value={form.teacherName}
+          onChange={(e) => setForm((f) => ({ ...f, teacherName: e.target.value }))}
+          placeholder="İsteğe bağlı"
+        />
+      </SettingField>
+      <SettingField label="Başlangıç" htmlFor="baslangic-dialog">
+        <TimeInput24
+          id="baslangic-dialog"
+          className="w-full [&_button]:h-9 [&_button]:px-2"
+          value={form.startTime}
+          onChange={(startTime) => setForm((f) => ({ ...f, startTime }))}
+        />
+      </SettingField>
+      <SettingField label="Süre (dk)" htmlFor="sure-dialog">
+        <Input
+          id="sure-dialog"
+          className="h-9 px-2 tabular-nums"
+          type="number"
+          min={1}
+          max={180}
+          value={form.lessonMinutes}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, lessonMinutes: clamp(Number(e.target.value), 1, 180, 40) }))
+          }
+        />
+      </SettingField>
+      <SettingField label="Teneffüs" htmlFor="teneffus-dialog">
+        <Input
+          id="teneffus-dialog"
+          className="h-9 px-2 tabular-nums"
+          type="number"
+          min={0}
+          max={60}
+          value={form.breakMinutes}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, breakMinutes: clamp(Number(e.target.value), 0, 60, 10) }))
+          }
+        />
+      </SettingField>
+      <SettingField label="Öğle (dk)" htmlFor="ogle-dialog">
+        <Input
+          id="ogle-dialog"
+          className="h-9 px-2 tabular-nums"
+          type="number"
+          min={0}
+          max={180}
+          value={form.lunchMinutes}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, lunchMinutes: clamp(Number(e.target.value), 0, 180, 60) }))
+          }
+        />
+      </SettingField>
+      <SettingField label="Günlük ders" htmlFor="adet-dialog">
+        <Input
+          id="adet-dialog"
+          className="h-9 px-2 tabular-nums"
+          type="number"
+          min={1}
+          max={14}
+          value={form.lessonsPerDay}
+          onChange={(e) =>
+            setForm((f) => ({ ...f, lessonsPerDay: clamp(Number(e.target.value), 1, 14, 10) }))
+          }
+        />
+      </SettingField>
+    </div>
+  )
 }
 
 function cellFromPoint(x: number, y: number) {
@@ -175,6 +300,7 @@ export default function TimetableEditorPage() {
   const [draftGrade, setDraftGrade] = useState('')
   const [draftSection, setDraftSection] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
   const [cellMenu, setCellMenu] = useState<{ x: number; y: number; day: number; period: number } | null>(
     null,
   )
@@ -210,7 +336,26 @@ export default function TimetableEditorPage() {
   }, [isNew, item])
 
   const slots = useMemo(() => buildDaySlots(form), [form])
-  const lunch = slots.find((s) => s.kind === 'lunch')
+  const [nowTick, setNowTick] = useState(() => new Date())
+
+  useEffect(() => {
+    const tick = () => setNowTick(new Date())
+    tick()
+    const id = window.setInterval(tick, 30_000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  const activeDayIndex = useMemo(() => {
+    const weekday = nowTick.getDay()
+    if (weekday < 1 || weekday > 5) return null
+    return weekday - 1
+  }, [nowTick])
+
+  const activeLessonPeriod = useMemo(() => {
+    if (activeDayIndex == null) return null
+    const time = `${pad(nowTick.getHours())}:${pad(nowTick.getMinutes())}`
+    return findLessonPeriodForTime(form, time)
+  }, [nowTick, form, activeDayIndex])
   const lessonNames = useMemo(() => {
     const names = new Set<string>()
     for (const course of courses) {
@@ -517,102 +662,39 @@ export default function TimetableEditorPage() {
       backTo="/ders-programlari"
       backTitle="Programlar"
       wide
+      rightAction={
+        <div className="flex items-center gap-1.5 pointer-events-auto">
+          {hasSaved && !dirty && !saving && (
+            <Check className="h-4 w-4 text-emerald-600 shrink-0" aria-label="Kaydedildi" />
+          )}
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button type="button" variant="outline" size="icon" className="h-9 w-9" aria-label="Düzenle">
+                <Pencil className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onSelect={() => setSettingsOpen(true)}>Program ayarları</DropdownMenuItem>
+              <DropdownMenuItem disabled={!dirty || saving} onSelect={() => void persist(form)}>
+                Kaydet
+              </DropdownMenuItem>
+              {savedId ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    className="text-destructive focus:text-destructive"
+                    onSelect={() => setConfirmDelete(true)}
+                  >
+                    Programı sil
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
+      }
     >
       <div className="space-y-3">
-        <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
-          <SettingField label="Öğretmen adı" htmlFor="ogretmen" className="w-full sm:w-52">
-            <Input
-              id="ogretmen"
-              className="h-9"
-              value={form.teacherName}
-              onChange={(e) => setForm((f) => ({ ...f, teacherName: e.target.value }))}
-              placeholder="İsteğe bağlı"
-            />
-          </SettingField>
-          <SettingField label="Başlangıç" htmlFor="baslangic">
-            <TimeInput24
-              id="baslangic"
-              className="w-[8.75rem] [&_button]:h-9 [&_button]:px-2"
-              value={form.startTime}
-              onChange={(startTime) => setForm((f) => ({ ...f, startTime }))}
-            />
-          </SettingField>
-          <SettingField label="Süre (dk)" htmlFor="sure">
-            <Input
-              id="sure"
-              className="h-9 w-[4.25rem] px-2 tabular-nums"
-              type="number"
-              min={1}
-              max={180}
-              value={form.lessonMinutes}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, lessonMinutes: clamp(Number(e.target.value), 1, 180, 40) }))
-              }
-            />
-          </SettingField>
-          <SettingField label="Teneffüs" htmlFor="teneffus">
-            <Input
-              id="teneffus"
-              className="h-9 w-[4.25rem] px-2 tabular-nums"
-              type="number"
-              min={0}
-              max={60}
-              value={form.breakMinutes}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, breakMinutes: clamp(Number(e.target.value), 0, 60, 10) }))
-              }
-            />
-          </SettingField>
-          <SettingField label="Öğle (dk)" htmlFor="ogle">
-            <Input
-              id="ogle"
-              className="h-9 w-[4.25rem] px-2 tabular-nums"
-              type="number"
-              min={0}
-              max={180}
-              value={form.lunchMinutes}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, lunchMinutes: clamp(Number(e.target.value), 0, 180, 60) }))
-              }
-            />
-          </SettingField>
-          <SettingField label="Günlük ders" htmlFor="adet">
-            <Input
-              id="adet"
-              className="h-9 w-[4.25rem] px-2 tabular-nums"
-              type="number"
-              min={1}
-              max={14}
-              value={form.lessonsPerDay}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, lessonsPerDay: clamp(Number(e.target.value), 1, 14, 10) }))
-              }
-            />
-          </SettingField>
-          <div className="flex items-center gap-1.5">
-            <Button type="button" size="sm" disabled={!dirty || saving} onClick={() => persist(form)}>
-              Kaydet
-            </Button>
-            <span className="inline-flex h-4 w-4 items-center justify-center">
-              {hasSaved && !dirty && !saving && (
-                <Check className="h-4 w-4 text-emerald-600" aria-label="Kaydedildi" />
-              )}
-            </span>
-            {savedId && (
-              <Button type="button" size="sm" variant="outline" onClick={() => setConfirmDelete(true)}>
-                Sil
-              </Button>
-            )}
-          </div>
-        </div>
-
-        {lunch && (
-          <p className="text-xs text-muted-foreground">
-            Öğle arası {lunch.start}–{lunch.end}, 5. dersten sonra. Dolu hücreyi sürükleyerek boş
-            hücrelere kopyalayın.
-          </p>
-        )}
-
         <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
           <table
             className={cn(
@@ -623,7 +705,7 @@ export default function TimetableEditorPage() {
           >
             <thead>
               <tr>
-                <th className="sticky left-0 z-10 w-12 bg-background border px-1 py-1.5 text-left text-[11px] font-medium sm:w-[4.5rem] sm:p-2 sm:text-xs">
+                <th className="sticky left-0 z-10 w-9 bg-background border px-0.5 py-1.5 text-left text-[11px] font-medium sm:w-10 sm:p-1.5 sm:text-xs">
                   Saat
                 </th>
                 {TIMETABLE_DAYS.map((day) => (
@@ -636,29 +718,26 @@ export default function TimetableEditorPage() {
             <tbody>
               {slots.map((slot) =>
                 slot.kind === 'lunch' ? (
-                  <tr key="lunch">
-                    <td className="sticky left-0 z-10 bg-amber-50 border px-1 py-1.5 text-amber-900 font-medium">
+                  <tr key="lunch" className="h-7">
+                    <td className="sticky left-0 z-10 bg-amber-50 border px-0.5 py-0.5 text-amber-900 text-[11px] font-medium leading-none">
                       Öğle
-                      <div className="font-normal text-[10px] leading-tight">
-                        <span className="sm:hidden">{slot.start}</span>
-                        <span className="hidden sm:inline">
-                          {slot.start}–{slot.end}
-                        </span>
-                      </div>
                     </td>
-                    <td colSpan={5} className="border bg-amber-50 px-1 py-1.5 text-center text-amber-900">
-                      Öğle arası
+                    <td
+                      colSpan={5}
+                      className="border bg-amber-50 px-1 py-0.5 text-center text-amber-900 text-[11px] leading-none"
+                    >
+                      <span className="font-medium">Öğle arası</span>
+                      <span className="ml-2 tabular-nums text-[10px] font-normal">{slot.start}</span>
+                      <span className="ml-1 tabular-nums text-[10px] font-normal">{slot.end}</span>
                     </td>
                   </tr>
                 ) : (
                   <tr key={slot.period}>
-                    <td className="sticky left-0 z-10 bg-background border px-1 py-1">
+                    <td className="sticky left-0 z-10 border px-0.5 py-1 bg-background">
                       <div className="font-medium">{slot.period}</div>
-                      <div className="text-[10px] leading-tight text-muted-foreground">
-                        <span className="sm:hidden">{slot.start}</span>
-                        <span className="hidden sm:inline">
-                          {slot.start}–{slot.end}
-                        </span>
+                      <div className="text-[9px] leading-[1.15] text-muted-foreground tabular-nums sm:text-[10px]">
+                        <div>{slot.start}</div>
+                        <div>{slot.end}</div>
                       </div>
                     </td>
                     {TIMETABLE_DAYS.map((day, dayIndex) => {
@@ -667,6 +746,10 @@ export default function TimetableEditorPage() {
                       const willFill = fillPreview?.keys.has(key) ?? false
                       const isSource =
                         drag?.sourceDay === dayIndex && drag.sourcePeriod === slot.period && !!drag.axis
+                      const isNowLesson =
+                        activeDayIndex === dayIndex &&
+                        activeLessonPeriod === slot.period &&
+                        Boolean(text.trim())
                       return (
                         <td
                           key={day}
@@ -681,10 +764,17 @@ export default function TimetableEditorPage() {
                         >
                           <button
                             type="button"
-                            title={text ? 'Sürükleyerek yay' : undefined}
+                            title={
+                              isNowLesson
+                                ? 'Derse git'
+                                : text
+                                  ? 'Sürükleyerek yay'
+                                  : undefined
+                            }
                             className={cn(
                               'w-full min-h-10 rounded px-0.5 py-1 text-left text-[11px] leading-tight break-words hover:bg-muted sm:px-1.5',
                               text ? 'cursor-grab font-medium touch-none' : 'text-muted-foreground',
+                              isNowLesson && 'timetable-now-slot ring-1 ring-primary/40 cursor-pointer',
                               willFill && !text && 'font-medium text-primary',
                             )}
                             onPointerDown={(event) => onFillPointerDown(event, dayIndex, slot.period)}
@@ -693,6 +783,19 @@ export default function TimetableEditorPage() {
                               if (draggedRef.current || menuOpenedRef.current) {
                                 draggedRef.current = false
                                 menuOpenedRef.current = false
+                                return
+                              }
+                              if (isNowLesson && text.trim()) {
+                                const courseId = findCourseIdForCell(text, courses)
+                                if (courseId) {
+                                  navigate(`/courses/${courseId}`)
+                                  return
+                                }
+                                toast({
+                                  title: 'Ders bulunamadı',
+                                  description: 'Derslerim listesinde eşleşen kayıt yok.',
+                                  variant: 'destructive',
+                                })
                                 return
                               }
                               openCell(dayIndex, slot.period)
@@ -710,6 +813,30 @@ export default function TimetableEditorPage() {
           </table>
         </div>
       </div>
+
+      <Dialog open={settingsOpen} onOpenChange={setSettingsOpen}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Program ayarları</DialogTitle>
+          </DialogHeader>
+          <TimetableSettingsFields form={form} setForm={setForm} />
+          <DialogFooter className="gap-2 sm:gap-0">
+            <Button type="button" variant="outline" onClick={() => setSettingsOpen(false)}>
+              Kapat
+            </Button>
+            <Button
+              type="button"
+              disabled={!dirty || saving}
+              onClick={() => {
+                void persist(form)
+                setSettingsOpen(false)
+              }}
+            >
+              Kaydet
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!cellOpen} onOpenChange={(open) => !open && setCellOpen(null)}>
         <DialogContent className="max-w-sm">
