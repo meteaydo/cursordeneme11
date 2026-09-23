@@ -15,7 +15,7 @@ const FUSE_OPTIONS = {
   ],
   threshold: 0.4,
   includeScore: true,
-} as const
+}
 
 /** Ders detayı ve yoklama sayfalarındaki akıllı öğrenci araması (Fuse.js). */
 export function useFuseStudentSearch<T extends FuseStudentSearchRow>(items: T[]) {
