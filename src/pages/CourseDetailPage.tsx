@@ -30,14 +30,17 @@ import { useCourses } from '@/hooks/useCourses'
 import { queueImageUpload } from '@/lib/imageQueue'
 import { OfflineImage } from '@/components/ui/OfflineImage'
 import { toast } from '@/hooks/use-toast'
-import type { AnnualPlan, Application, Score, Student, StudentFormData } from '@/types'
+import type { AnnualPlan, Application, AttendanceMark, Score, Student, StudentFormData } from '@/types'
 import ExcelJS from 'exceljs'
 import { format } from 'date-fns'
 import { tr } from 'date-fns/locale'
-import { formatTitleCase, formatClassName, getScoreKameraFotolar, getScoreKanitSayilari, MAX_UYGULAMA_FOTO, type KanitKaynagi } from '@/lib/utils'
+import { formatTitleCase, formatClassName, getScoreKameraFotolar, getScoreKanitSayilari, MAX_UYGULAMA_FOTO, cn, type KanitKaynagi } from '@/lib/utils'
 import { parseStudentExcel, type ParsedStudent } from '@/lib/excelStudentParser'
-import { parseClassTemplate, fetchClassList } from '@/services/classTemplateService'
-import { AnnualPlanBanner } from '@/components/AnnualPlanBanner'
+import { parseClassTemplate, fetchClassList, gradesFromClassNames } from '@/services/classTemplateService'
+import { LessonSlotHeader } from '@/components/LessonSlotHeader'
+import { attendanceScoreFields, useCourseLessonSlot, visibleAttendanceMark } from '@/hooks/useCourseLessonSlot'
+import { findSameDayEarlierAttendance, useAttendanceHistory, type AttendanceSessionSummary } from '@/hooks/useClassAttendance'
+import { useBellSchedule } from '@/hooks/useTimetables'
 import { parseAnnualPlanDocx } from '@/lib/annualPlanParser'
 
 const EMPTY_STUDENT: StudentFormData = {
@@ -70,7 +73,7 @@ function scoreHasEnteredPuan(score?: Score): boolean {
   return score?.puan !== null && score?.puan !== undefined && String(score.puan) !== ''
 }
 
-type ReportScoreCell = number | 'D' | ''
+type ReportScoreCell = number | 'D' | 'G' | ''
 
 interface ReportTableRow {
   no: string
@@ -87,6 +90,7 @@ interface ReportTableData {
 
 function reportScoreClass(value: ReportScoreCell) {
   if (value === 'D') return 'text-red-500 font-bold'
+  if (value === 'G') return 'text-amber-600 font-bold'
   if (typeof value === 'number') {
     if (value < 50) return 'text-red-500 font-bold'
     if (value >= 85) return 'text-emerald-500 font-bold'
@@ -107,10 +111,15 @@ export default function CourseDetailPage() {
   const { applications, loading: appsLoading, addApplication, updateApplication, deleteApplication, getScores, setScore } = useApplications(id)
   const { courses, updateCourse } = useCourses()
   const course = useMemo(() => courses.find((c) => c.id === id), [courses, id])
+  const sinifAdi = formatClassName(course?.sinifAdi || state?.className || '')
+  const lessonSlot = useCourseLessonSlot(sinifAdi)
+  const { schedule: bellSchedule } = useBellSchedule()
+  const { sessions: attendanceSessions } = useAttendanceHistory(bellSchedule)
 
   // Selected application for scoring
   const [selectedApp, setSelectedApp] = useState<Application | null>(null)
   const [scores, setScores] = useState<Record<string, Score>>({})
+  const [everyoneConfirm, setEveryoneConfirm] = useState(false)
   const [scoresLoading, setScoresLoading] = useState(false)
 
   // Dialogs
@@ -130,6 +139,7 @@ export default function CourseDetailPage() {
   const [appForm, setAppForm] = useState({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd'), foto: '' as string | undefined })
   const [appSaving, setAppSaving] = useState(false)
   const [newlyAddedAppId, setNewlyAddedAppId] = useState<string | null>(null)
+  const [transferAttendance, setTransferAttendance] = useState<AttendanceSessionSummary | null>(null)
 
   // Student form
   const [studentForm, setStudentForm] = useState<StudentFormData>(EMPTY_STUDENT)
@@ -194,10 +204,10 @@ export default function CourseDetailPage() {
     const q = studentSearch.trim()
     let base = q ? studentFuse.search(q).map((r) => r.item) : students
     if (onlyBos && selectedApp) {
-      base = base.filter((s) => !studentHasPuan(scores[s.id]))
+      base = base.filter((s) => lessonSlot.marks[s.no] !== 'D' && !studentHasPuan(scores[s.id]))
     }
     return [...base].sort((a, b) => compareStudentsBySortKey(a, b, studentSortKey))
-  }, [students, studentSearch, studentSortKey, studentFuse, onlyBos, selectedApp, scores])
+  }, [students, studentSearch, studentSortKey, studentFuse, onlyBos, selectedApp, scores, lessonSlot.marks])
 
   const scoreProgress = useMemo(() => {
     const total = students.length
@@ -207,14 +217,12 @@ export default function CourseDetailPage() {
   }, [students, scores, selectedApp])
 
   const displayedDevamsizCount = useMemo(() => {
-    if (!selectedApp) return null
-    return displayedStudents.filter((s) => scores[s.id]?.devamsiz).length
-  }, [displayedStudents, scores, selectedApp])
+    return displayedStudents.filter((s) => lessonSlot.marks[s.no] === 'D').length
+  }, [displayedStudents, lessonSlot.marks])
 
   const devamsizStudentsList = useMemo(() => {
-    if (!selectedApp) return []
-    return displayedStudents.filter((s) => scores[s.id]?.devamsiz)
-  }, [displayedStudents, scores, selectedApp])
+    return displayedStudents.filter((s) => lessonSlot.marks[s.no] === 'D')
+  }, [displayedStudents, lessonSlot.marks])
 
   // Scroll Anchoring refs
   const studentsContainerRef = useRef<HTMLDivElement>(null)
@@ -236,9 +244,8 @@ export default function CourseDetailPage() {
 
   useEffect(() => {
     fetchClassList().then(list => {
-      const g = Array.from(new Set(list.map(c => c.match(/^\d+/)?.[0]).filter(Boolean))) as string[]
       const s = Array.from(new Set(list.map(c => c.match(/[A-Z]+$/)?.[0]).filter(Boolean))) as string[]
-      setGrades(g.sort((a, b) => Number(a) - Number(b)))
+      setGrades(gradesFromClassNames(list))
       setSections(s.sort())
     })
   }, [])
@@ -435,11 +442,37 @@ export default function CourseDetailPage() {
     e.preventDefault()
     setAppSaving(true)
     const ad = appForm.ad.trim() || nextAppName
-    const newId = await addApplication(ad, appForm.tarih)
+    const tarih = appForm.tarih
+    const sameDayApp = applications.some((a) => a.tarih === tarih)
+    const newId = await addApplication(ad, tarih)
     if (newId) setNewlyAddedAppId(newId)
     setAddAppOpen(false)
     setAppForm({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd'), foto: undefined })
     setAppSaving(false)
+
+    if (sameDayApp && tarih === lessonSlot.date && sinifAdi) {
+      const prev = findSameDayEarlierAttendance(
+        attendanceSessions,
+        sinifAdi,
+        lessonSlot.date,
+        lessonSlot.time,
+        lessonSlot.lessonPeriod,
+      )
+      if (prev) setTransferAttendance(prev)
+    }
+  }
+
+  const applyTransferredAttendance = async () => {
+    if (!transferAttendance) return
+    try {
+      await lessonSlot.replaceMarks({ ...transferAttendance.marks })
+      const label = transferAttendance.lessonPeriod != null
+        ? `${transferAttendance.lessonPeriod}. ders`
+        : transferAttendance.time
+      toast({ title: `${label} yoklaması aktarıldı` })
+    } catch {
+      toast({ title: 'Yoklama aktarılamadı', variant: 'destructive' })
+    }
   }
 
   const handleAddStudent = async (e: React.FormEvent) => {
@@ -595,18 +628,51 @@ export default function CourseDetailPage() {
     }))
   }
 
-  const handleDevamsizToggle = async (studentId: string) => {
+  const studentsWithAttendance = () =>
+    students.filter((student) => {
+      const mark = visibleAttendanceMark(student.no ? lessonSlot.marks[student.no] : undefined, scores[student.id])
+      return mark === 'D' || mark === 'G'
+    })
+
+  const saveEveryonePresent = async () => {
+    const marked = studentsWithAttendance()
+    if (selectedApp) {
+      await Promise.all(marked.map((student) => setScore(selectedApp.id, student.id, { devamsiz: false, gec: false })))
+      setScores((prev) => {
+        const next = { ...prev }
+        for (const student of marked) {
+          if (!next[student.id]) continue
+          next[student.id] = { ...next[student.id], devamsiz: false, gec: false }
+        }
+        return next
+      })
+    }
+    await lessonSlot.markEveryonePresent()
+    toast({ title: 'Herkes geldi olarak kaydedildi' })
+  }
+
+  const handleAttendanceMark = async (studentId: string, mark: AttendanceMark) => {
+    const student = students.find((s) => s.id === studentId)
+    if (!student?.no) return
+    const fields = attendanceScoreFields(visibleAttendanceMark(lessonSlot.marks[student.no], scores[studentId]), mark)
+    await lessonSlot.setMark(student.no, mark)
     if (!selectedApp) return
-    const current = scores[studentId]?.devamsiz ?? false
-    const next = !current
-    await setScore(selectedApp.id, studentId, { devamsiz: next })
+    await setScore(selectedApp.id, studentId, fields)
     setScores((prev) => ({
       ...prev,
-      [studentId]: { ...prev[studentId], id: studentId, applicationId: selectedApp.id, studentId, devamsiz: next },
+      [studentId]: {
+        ...prev[studentId],
+        id: studentId,
+        applicationId: selectedApp.id,
+        studentId,
+        ...fields,
+      },
     }))
   }
 
   const handleKisaNotChange = async (studentId: string, kisaNot: string) => {
+    const student = students.find((s) => s.id === studentId)
+    if (student?.no) await lessonSlot.setNote(student.no, kisaNot)
     if (!selectedApp) return
     await setScore(selectedApp.id, studentId, { kisaNot })
     setScores((prev) => ({
@@ -850,6 +916,7 @@ export default function CourseDetailPage() {
       const scores = apps.map((app) => {
         const scoreObj = allScoresData[app.id]?.[s.id]
         if (scoreObj?.devamsiz) return 'D' as const
+        if (scoreObj?.gec) return 'G' as const
         const puan = scoreObj?.puan
         if (puan !== undefined && puan !== null) {
           const numPuan = Number(puan)
@@ -1051,6 +1118,44 @@ export default function CourseDetailPage() {
         </div>
       )}
       <div className="space-y-4">
+        <div className="space-y-1">
+          <LessonSlotHeader
+            lessonPeriod={lessonSlot.lessonPeriod}
+            date={lessonSlot.date}
+            time={lessonSlot.time}
+            onDateChange={lessonSlot.setDate}
+            onTimeChange={lessonSlot.setTime}
+          />
+          {sinifAdi ? (
+            <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+              <button
+                type="button"
+                className="text-[11px] font-medium text-primary underline-offset-2 hover:underline disabled:no-underline disabled:text-muted-foreground"
+                disabled={lessonSlot.herkesGeldi && studentsWithAttendance().length === 0}
+                onClick={() => {
+                  if (studentsWithAttendance().length > 0) setEveryoneConfirm(true)
+                  else void saveEveryonePresent()
+                }}
+              >
+                Herkes geldi
+              </button>
+              <button
+                type="button"
+                className="text-[11px] font-medium text-primary underline-offset-2 hover:underline"
+                onClick={() =>
+                  navigate(`/classes/${encodeURIComponent(sinifAdi)}/yoklamalar?ders=${id}`, {
+                    state: {
+                      courseName: course?.dersAdi || state?.courseName,
+                      className: sinifAdi,
+                    },
+                  })
+                }
+              >
+                Yoklama defteri
+              </button>
+            </div>
+          ) : null}
+        </div>
         {/* Applications Section — liste ile birlikte kayar */}
         <div className="space-y-0">
         <div className="-mx-4 px-4 py-1.5 -mt-4 border-b border-border/40">
@@ -1079,13 +1184,13 @@ export default function CourseDetailPage() {
                       key={app.id}
                       onClick={(e) => handleAppSelect(app, e)}
                       onContextMenu={(e) => handleAppContextMenu(e, app)}
-                      className={`shrink-0 text-left px-3 py-2 rounded-xl border text-sm transition-all duration-300 select-none overflow-hidden ${selectedApp?.id === app.id
-                        ? 'w-[140px] bg-primary text-primary-foreground border-primary shadow-md'
-                        : 'w-[112px] bg-white border-border hover:border-primary/50'
+                      className={`shrink-0 text-left px-2.5 py-1.5 rounded-xl border text-sm transition-all duration-300 select-none overflow-hidden ${selectedApp?.id === app.id
+                        ? 'w-[116px] bg-blue-50 text-foreground border-primary shadow-md'
+                        : 'w-[96px] bg-background border-border hover:border-primary/50'
                         }`}
                     >
                       <div className="font-medium truncate">{app.ad}</div>
-                      <div className={`text-[11px] mt-0.5 truncate ${selectedApp?.id === app.id ? 'text-primary-foreground/80' : 'text-muted-foreground'}`}>
+                      <div className="text-[11px] mt-0.5 truncate text-muted-foreground">
                         {format(new Date(app.tarih + 'T12:00:00'), 'd MMM yyyy', { locale: tr })}
                       </div>
                     </button>
@@ -1111,7 +1216,6 @@ export default function CourseDetailPage() {
             )}
           </div>
         </div>
-        <AnnualPlanBanner plan={course?.annualPlan} />
         {/* Students Section */}
         <div>
           {studentsLoading ? (
@@ -1123,31 +1227,17 @@ export default function CourseDetailPage() {
               </CardContent>
             </Card>
           ) : (
-            <div className="space-y-2" ref={studentsContainerRef}>
+            <div ref={studentsContainerRef}>
               <div
                 ref={stickyHeaderRef}
-                className="sticky top-14 z-30 -mx-4 px-4 py-1.5 mb-2 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 border-b border-border/40 shadow-sm flex items-end gap-2 -mt-px"
+                className="sticky top-14 z-30 -mx-4 px-4 pt-1.5 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80 flex flex-col -mt-px"
               >
+                <div className="flex items-start gap-2 pb-1.5">
                 <div className="flex flex-col items-center shrink-0 gap-0.5">
-                  <span className="text-[10px] font-bold tabular-nums leading-none text-slate-600 min-h-[11px] whitespace-nowrap">
-                    {displayedStudents.length} öğrenci
-                  </span>
-                  {displayedDevamsizCount !== null ? (
-                    <button
-                      type="button"
-                      onClick={() => setDevamsizListOpen(true)}
-                      className="text-[10px] font-bold tabular-nums leading-none text-destructive/90 min-h-[11px] whitespace-nowrap underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm"
-                      title="Devamsız öğrenci listesini aç"
-                    >
-                      {displayedDevamsizCount} devamsız
-                    </button>
-                  ) : (
-                    <span className="min-h-[11px]" aria-hidden />
-                  )}
                   <Select value={studentSortKey} onValueChange={(v) => setStudentSortKey(v as StudentListSortKey)}>
                     <SelectTrigger className="h-9 w-[96px] shrink-0 text-xs font-semibold gap-1 px-2">
                       <ArrowUpDown className="h-3.5 w-3.5 shrink-0 opacity-60" />
-                      <SelectValue placeholder="Sırala" />
+                      <span className="truncate">Sırala</span>
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="no">Öğr No</SelectItem>
@@ -1156,29 +1246,45 @@ export default function CourseDetailPage() {
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="flex flex-col items-center shrink-0 gap-0.5">
-                  {scoreProgress ? (
-                    <span className="text-[10px] font-bold tabular-nums leading-none text-slate-600 min-h-[11px]">
-                      {scoreProgress.empty} boş
-                    </span>
-                  ) : (
-                    <span className="min-h-[11px]" aria-hidden />
-                  )}
-                  <Button
+                <div className="relative flex flex-col items-center shrink-0">
+                  <button
                     type="button"
-                    variant={onlyBos ? 'default' : 'outline'}
-                    size="sm"
+                    role="switch"
+                    aria-checked={onlyBos}
                     disabled={!selectedApp}
                     onClick={() => setOnlyBos((v) => !v)}
-                    className="h-9 shrink-0 px-2 text-xs font-bold min-w-[3.25rem]"
                     title={
                       scoreProgress
                         ? `${scoreProgress.empty} öğrencinin puanı girilmedi`
                         : 'Önce bir uygulama seçin'
                     }
+                    className={cn(
+                      'h-9 shrink-0 inline-flex items-center gap-1.5 rounded-md border px-1.5 text-[11px] font-bold leading-tight text-left',
+                      onlyBos ? 'border-primary bg-blue-50' : 'border-input bg-background',
+                      !selectedApp && 'opacity-50 pointer-events-none'
+                    )}
                   >
-                    Boşlar
-                  </Button>
+                    <span
+                      aria-hidden
+                      className={cn(
+                        'relative h-5 w-9 shrink-0 rounded-full transition-colors',
+                        onlyBos ? 'bg-primary' : 'bg-slate-300'
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          'absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform',
+                          onlyBos && 'translate-x-4'
+                        )}
+                      />
+                    </span>
+                    <span className="max-w-[4.25rem]">Not Girilmeyenler</span>
+                  </button>
+                  {scoreProgress && (
+                    <span className="absolute top-full left-1/2 -translate-x-1/2 mt-1.5 text-[10px] font-bold tabular-nums leading-none text-slate-600 whitespace-nowrap">
+                      {scoreProgress.empty} Not Girilmemiş
+                    </span>
+                  )}
                 </div>
                 <div className="relative flex-1 min-w-0">
                   <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
@@ -1199,8 +1305,25 @@ export default function CourseDetailPage() {
                     </button>
                   )}
                 </div>
+                </div>
+                <div className="flex justify-end items-center gap-3 pr-[10px]">
+                  <span className="text-[10px] font-bold tabular-nums leading-none text-slate-600 whitespace-nowrap">
+                    {displayedStudents.length} öğrenci
+                  </span>
+                  {displayedDevamsizCount !== null && (
+                    <button
+                      type="button"
+                      onClick={() => setDevamsizListOpen(true)}
+                      className="text-[10px] font-bold tabular-nums leading-none text-destructive/90 whitespace-nowrap underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm"
+                      title="Devamsız öğrenci listesini aç"
+                    >
+                      {displayedDevamsizCount} devamsız
+                    </button>
+                  )}
+                </div>
               </div>
 
+              <div className="mt-[2px] space-y-2">
               {displayedStudents.length === 0 ? (
                 <Card>
                   <CardContent className="py-6 text-center text-muted-foreground text-sm">
@@ -1216,9 +1339,12 @@ export default function CourseDetailPage() {
                   student={student}
                   selectedApp={selectedApp}
                   score={scores[student.id]}
+                  attendanceMark={visibleAttendanceMark(lessonSlot.marks[student.no], scores[student.id])}
+                  lessonNote={lessonSlot.notes[student.no]}
                   scoresLoading={scoresLoading}
                   onScoreChange={handleScoreChange}
-                  onDevamsiz={handleDevamsizToggle}
+                  onDevamsiz={(studentId) => void handleAttendanceMark(studentId, 'D')}
+                  onGec={(studentId) => void handleAttendanceMark(studentId, 'G')}
                   onKisaNotChange={handleKisaNotChange}
                   onCamera={openCamera}
                   onFileUpload={handleFileUpload}
@@ -1229,6 +1355,7 @@ export default function CourseDetailPage() {
                 />
                 ))
               )}
+              </div>
             </div>
           )}
         </div>
@@ -1337,6 +1464,29 @@ export default function CourseDetailPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <ConfirmDialog
+        open={transferAttendance !== null}
+        onOpenChange={(open) => { if (!open) setTransferAttendance(null) }}
+        title="Önceki yoklamayı aktar"
+        description={
+          transferAttendance?.lessonPeriod != null
+            ? `Bu sınıfta bugün ${transferAttendance.lessonPeriod}. ders yoklaması var. D ve G işaretlerini bu derse aktarmak ister misin?`
+            : 'Bu sınıfta bugün daha erken bir yoklama var. D ve G işaretlerini bu derse aktarmak ister misin?'
+        }
+        confirmText="Aktar"
+        cancelText="Hayır"
+        onConfirm={() => void applyTransferredAttendance()}
+      />
+
+      <ConfirmDialog
+        open={everyoneConfirm}
+        onOpenChange={setEveryoneConfirm}
+        title="Herkes geldi"
+        description="Devamsız ve Geç yazılanlar silinecek"
+        confirmText="Kaydet"
+        onConfirm={() => void saveEveryonePresent()}
+      />
 
       <ConfirmDialog
         open={deleteAppConfirmOpen}
@@ -1872,6 +2022,7 @@ export default function CourseDetailPage() {
         onClose={() => setNumpadOpenFor(null)}
         value={numpadOpenFor ? (scores[numpadOpenFor]?.puan?.toString() ?? '') : ''}
         student={numpadOpenFor ? students.find(s => s.id === numpadOpenFor) : undefined}
+        profileHref={numpadOpenFor ? `/courses/${id}/students/${numpadOpenFor}` : undefined}
         onChange={(val) => {
           if (numpadOpenFor) {
             handleScoreChange(numpadOpenFor, val)
@@ -1889,6 +2040,9 @@ interface StudentRowProps {
   scoresLoading: boolean
   onScoreChange: (studentId: string, puan: string) => void
   onDevamsiz: (studentId: string) => void
+  onGec: (studentId: string) => void
+  attendanceMark?: AttendanceMark
+  lessonNote?: string
   onKisaNotChange: (studentId: string, kisaNot: string) => void
   onCamera: (studentId: string) => void
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>, studentId: string) => void
@@ -1898,7 +2052,7 @@ interface StudentRowProps {
   onNumpadOpen: (studentId: string) => void
 }
 
-function StudentRow({ student, selectedApp, score, scoresLoading, onScoreChange: _, onDevamsiz, onKisaNotChange, onCamera, onFileUpload, onPhotoDelete, onNavigate, dataStudentId, onNumpadOpen }: StudentRowProps) {
+function StudentRow({ student, selectedApp, score, scoresLoading, onScoreChange: _, onDevamsiz, onGec, attendanceMark, lessonNote, onKisaNotChange, onCamera, onFileUpload, onPhotoDelete, onNavigate, dataStudentId, onNumpadOpen }: StudentRowProps) {
   const [isZoomed, setIsZoomed] = useState(false)
   const [zoomPhotoUrl, setZoomPhotoUrl] = useState<string | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
@@ -1907,22 +2061,26 @@ function StudentRow({ student, selectedApp, score, scoresLoading, onScoreChange:
   const appPhotos = getScoreKameraFotolar(score)
   const kanitSayilari = getScoreKanitSayilari(score)
   const canAddPhoto = appPhotos.length < MAX_UYGULAMA_FOTO
-  const hasPuan = studentHasPuan(score)
+  const hasPuan = scoreHasEnteredPuan(score)
   const kanitBadge =
     'inline-flex items-center gap-0.5 min-w-[1.85rem] rounded-sm border border-border/50 bg-background px-0.5 py-px text-[9px] font-semibold leading-none text-muted-foreground tabular-nums shadow-sm shrink-0'
   const hasKanitRozet =
     kanitSayilari.kamera > 0 || kanitSayilari.dosya > 0 || kanitSayilari.not > 0
-  const devamsizVePuan = !!score?.devamsiz && scoreHasEnteredPuan(score)
+  const isDevamsiz = attendanceMark === 'D'
+  const isGec = attendanceMark === 'G'
+  const devamsizVePuan = isDevamsiz && scoreHasEnteredPuan(score)
 
   return (
     <div data-student-id={dataStudentId} className="scroll-mt-[108px]">
       <Card
         className={`relative overflow-visible ${
-          score?.devamsiz
-            ? 'border-destructive/40 bg-destructive/5'
-            : hasPuan
-              ? 'bg-slate-200/90 border-slate-300'
-              : ''
+          isDevamsiz
+            ? 'border-pink-200 bg-pink-50'
+            : isGec
+              ? 'border-amber-300 bg-amber-50/70'
+              : hasPuan
+                ? 'bg-slate-200/90 border-slate-300'
+                : ''
         }`}
       >
         {devamsizVePuan && (
@@ -1953,8 +2111,7 @@ function StudentRow({ student, selectedApp, score, scoresLoading, onScoreChange:
               )}
             </div>
 
-            <div className="flex-1 min-w-0 flex items-center gap-2">
-              <div className="flex-1 min-w-0 cursor-pointer" onClick={onNavigate}>
+            <div className="min-w-0 flex-1 cursor-pointer" onClick={onNavigate}>
                 <div className="font-medium text-sm truncate flex items-center gap-1.5">
                   <span className="truncate">{student.adSoyad}</span>
                   {student.bep && <span className="text-muted-foreground/50 font-normal text-xs shrink-0">(BEP)</span>}
@@ -1973,12 +2130,12 @@ function StudentRow({ student, selectedApp, score, scoresLoading, onScoreChange:
                 </div>
                 <div className="text-xs text-muted-foreground">
                   <span className="text-black font-medium">{student.no}</span>
-                  {student.pcNo && ` · PC: ${student.pcNo}`}
+                  {student.pcNo && ` · PC: ${student.pcNo.replace(/^PC\s*/i, '')}`}
                 </div>
-              </div>
+            </div>
 
-              {selectedApp && (
-                <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+            <div className="flex shrink-0 items-center gap-1" onClick={(e) => e.stopPropagation()}>
+                  {selectedApp && (
                   <Input
                     type="text"
                     readOnly
@@ -1992,21 +2149,31 @@ function StudentRow({ student, selectedApp, score, scoresLoading, onScoreChange:
                         : 'bg-white'
                     }`}
                   />
+                  )}
                   <Button
                     size="icon"
-                    variant={score?.devamsiz ? 'destructive' : 'outline'}
+                    variant={isDevamsiz ? 'destructive' : 'outline'}
                     className="h-8 w-8 text-xs font-bold shrink-0"
                     onClick={() => onDevamsiz(student.id)}
                     title="Devamsız"
                   >
                     D
                   </Button>
-                </div>
-              )}
+                  <Button
+                    size="icon"
+                    variant="outline"
+                    className={cn(
+                      'h-8 w-8 text-xs font-bold shrink-0',
+                      isGec && 'bg-amber-500 text-white border-amber-500 hover:bg-amber-500/90 hover:text-white',
+                    )}
+                    onClick={() => onGec(student.id)}
+                    title="Geç"
+                  >
+                    G
+                  </Button>
             </div>
 
-            {selectedApp && (
-              <div
+            <div
                 className="flex items-center gap-0.5 shrink-0 -mr-1"
                 aria-label={
                   hasKanitRozet
@@ -2029,12 +2196,12 @@ function StudentRow({ student, selectedApp, score, scoresLoading, onScoreChange:
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem disabled={!canAddPhoto} onClick={() => onCamera(student.id)}>
+                  <DropdownMenuItem disabled={!selectedApp || !canAddPhoto} onClick={() => onCamera(student.id)}>
                     <Camera className="h-4 w-4" />
                     Fotoğraf çek
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    disabled={!canAddPhoto}
+                    disabled={!selectedApp || !canAddPhoto}
                     onSelect={(e) => {
                       e.preventDefault()
                       fileInputRef.current?.click()
@@ -2045,7 +2212,7 @@ function StudentRow({ student, selectedApp, score, scoresLoading, onScoreChange:
                   </DropdownMenuItem>
                   <DropdownMenuItem onClick={() => setKisaNotOpen(true)}>
                     <FileText className="h-4 w-4" />
-                    Kısa not{(score?.kisaNot ?? '').trim() ? ' · dolu' : ''}
+                    Kısa not{(lessonNote ?? score?.kisaNot ?? '').trim() ? ' · dolu' : ''}
                   </DropdownMenuItem>
                   {appPhotos.length > 0 && (
                     <>
@@ -2083,7 +2250,6 @@ function StudentRow({ student, selectedApp, score, scoresLoading, onScoreChange:
                   </div>
                 )}
               </div>
-            )}
           </div>
 
           <input
@@ -2103,7 +2269,7 @@ function StudentRow({ student, selectedApp, score, scoresLoading, onScoreChange:
               </DialogHeader>
               <Input
                 placeholder="Kısa not..."
-                value={score?.kisaNot ?? ''}
+                value={lessonNote ?? score?.kisaNot ?? ''}
                 onChange={(e) => onKisaNotChange(student.id, e.target.value)}
                 className="text-sm"
                 autoFocus

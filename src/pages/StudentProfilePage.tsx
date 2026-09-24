@@ -309,6 +309,13 @@ export default function StudentProfilePage() {
     }
   }
 
+  const handleBehaviorFileUpload = (e: React.ChangeEvent<HTMLInputElement>, log: any) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    void uploadBehaviorPhotoForExistingLog(file, log)
+  }
+
   const resetBehaviorForm = () => {
     setBehaviorNote('')
     setIsBehaviorFormOpen(false)
@@ -846,17 +853,34 @@ export default function StudentProfilePage() {
                         ) : null}
                       </div>
                     </div>
-                    <div className="flex flex-col gap-1 shrink-0">
-                      <button 
-                        onClick={() => {
-                          setPhotoTargetLog(log)
-                          openCamera('behavior')
-                        }} 
-                        className="text-muted-foreground hover:bg-accent/50 p-1 rounded transition-colors"
-                        title="Fotoğraf Ekle"
-                      >
-                        <Camera className="h-3.5 w-3.5" />
-                      </button>
+                    <div className="flex flex-col gap-1 shrink-0 items-end">
+                      <div className="flex gap-0.5">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setPhotoTargetLog(log)
+                            openCamera('behavior')
+                          }}
+                          disabled={behaviorSaving}
+                          className="text-muted-foreground hover:bg-accent/50 p-1 rounded transition-colors disabled:opacity-50"
+                          title="Kamera ile fotoğraf ekle"
+                        >
+                          <Camera className="h-3.5 w-3.5" />
+                        </button>
+                        <label
+                          className="text-muted-foreground hover:bg-accent/50 p-1 rounded transition-colors cursor-pointer"
+                          title="Dosyadan fotoğraf ekle"
+                        >
+                          <Upload className="h-3.5 w-3.5" />
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            disabled={behaviorSaving}
+                            onChange={(e) => handleBehaviorFileUpload(e, log)}
+                          />
+                        </label>
+                      </div>
                       <button onClick={() => setBehaviorToDelete(log)} className="text-destructive hover:bg-destructive/10 p-1 rounded transition-colors">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>

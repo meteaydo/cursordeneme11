@@ -8,6 +8,15 @@ let cachedClassList: string[] | null = null
 /**
  * Cloudflare R2'den sınıf listesini (JSON) çeker.
  */
+export function gradesFromClassNames(list: string[]) {
+  const grades = new Set<string>(['9'])
+  for (const name of list) {
+    const grade = name.match(/^\d+/)?.[0]
+    if (grade) grades.add(grade)
+  }
+  return [...grades].sort((a, b) => Number(a) - Number(b))
+}
+
 export async function fetchClassList(): Promise<string[]> {
   if (cachedClassList) return cachedClassList
 

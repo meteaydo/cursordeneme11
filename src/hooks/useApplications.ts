@@ -92,6 +92,7 @@ export function useApplications(courseId: string) {
       kameraFotolar?: string[]
       kanitKaynaklari?: ('kamera' | 'dosya')[]
       devamsiz?: boolean
+      gec?: boolean
       kisaNot?: string
     },
   ) => {

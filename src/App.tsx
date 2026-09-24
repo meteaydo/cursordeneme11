@@ -7,10 +7,8 @@ import CoursesPage from '@/pages/CoursesPage'
 import CourseDetailPage from '@/pages/CourseDetailPage'
 import StudentProfilePage from '@/pages/StudentProfilePage'
 import { SeatingPlanPage } from '@/pages/SeatingPlanPage'
-import ClassesPage from '@/pages/ClassesPage'
 import SchoolListsPage from '@/pages/SchoolListsPage'
 import ClassDetailPage from '@/pages/ClassDetailPage'
-import ClassAttendancePage from '@/pages/ClassAttendancePage'
 import AttendanceHistoryPage from '@/pages/AttendanceHistoryPage'
 import AnnualPlansPage from '@/pages/AnnualPlansPage'
 import TimetablesPage from '@/pages/TimetablesPage'
@@ -74,35 +72,13 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/classes"
-            element={
-              <ProtectedRoute>
-                <ClassesPage />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/classes" element={<Navigate to="/courses" replace />} />
+          <Route path="/classes/:sinifAdi/yoklama" element={<Navigate to="/courses" replace />} />
           <Route
             path="/classes/:sinifAdi/yoklamalar"
             element={
               <ProtectedRoute>
                 <AttendanceHistoryPage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/classes/:sinifAdi/yoklama"
-            element={
-              <ProtectedRoute>
-                <ClassAttendancePage />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/classes/:sinifAdi"
-            element={
-              <ProtectedRoute>
-                <ClassDetailPage />
               </ProtectedRoute>
             }
           />
@@ -124,7 +100,7 @@ export default function App() {
           />
           <Route
             path="/yoklamalar"
-            element={<Navigate to="/classes" replace />}
+            element={<Navigate to="/courses" replace />}
           />
           <Route
             path="/ders-programlari"

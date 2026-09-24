@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 // @ts-ignore
@@ -19,20 +19,23 @@ import {
 import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch"
 import { Layout } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import Fuse from 'fuse.js'
 import { useCourses } from '@/hooks/useCourses'
 import { useStudents } from '@/hooks/useStudents'
 import { useApplications } from '@/hooks/useApplications'
 import { queueImageUpload } from '@/lib/imageQueue'
 import { toast } from '@/hooks/use-toast'
-import type { SeatObject, Score, SharedSeatingPlan } from '@/types'
+import type { AttendanceMark, SeatObject, Score, SharedSeatingPlan } from '@/types'
 import { DraggableItem } from './components/DraggableItem'
 import { SharedLayoutsDialog } from './components/SharedLayoutsDialog'
 import { SeatingPlanPreviewDialog } from './components/SeatingPlanPreviewDialog'
 import { SmartNumpad } from '@/components/ui/smart-numpad'
-import { Loader2, Save, RotateCcw, Plus, Undo2, Redo2, LayoutPanelTop, Trash2, ZoomIn, ZoomOut, Settings, FileSpreadsheet, Printer, Download, Globe, Eye } from 'lucide-react'
+import { ChevronDown, Loader2, Save, RotateCcw, Plus, Undo2, Redo2, LayoutPanelTop, Trash2, Settings, FileSpreadsheet, Download, Globe, Eye, Search, X } from 'lucide-react'
 import { generateSeatingPlanExcel } from '@/services/excelSeatingService'
 import { useSharedSeatingPlans } from '@/hooks/useSharedSeatingPlans'
-import { getScoreKameraFotolar, MAX_UYGULAMA_FOTO } from '@/lib/utils'
+import { cn, formatClassName, getScoreKameraFotolar, MAX_UYGULAMA_FOTO } from '@/lib/utils'
+import { attendanceScoreFields, useCourseLessonSlot, visibleAttendanceMark } from '@/hooks/useCourseLessonSlot'
 
 
 
@@ -163,6 +166,11 @@ class SmartTouchSensor extends TouchSensor {
   ];
 }
 
+function studentHasPuan(score?: Score): boolean {
+  if (score?.devamsiz) return true
+  return score?.puan !== null && score?.puan !== undefined && String(score.puan) !== ''
+}
+
 export function SeatingPlanPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const location = useLocation()
@@ -174,6 +182,8 @@ export function SeatingPlanPage() {
   const { setScore, getScores } = useApplications(courseId!)
 
   const course = courses.find((c) => c.id === courseId)
+  const sinifAdi = formatClassName(course?.sinifAdi || '')
+  const lessonSlot = useCourseLessonSlot(sinifAdi)
 
   // -- STATE & REFS --
   const [scores, setScores] = useState<Record<string, Score>>({})
@@ -189,12 +199,14 @@ export function SeatingPlanPage() {
   const [activeId, setActiveId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [isToolbarOpen, setIsToolbarOpen] = useState(false)
+  const [seatSearch, setSeatSearch] = useState('')
+  const [onlyBos, setOnlyBos] = useState(false)
+  const [seatToolsOpen, setSeatToolsOpen] = useState(false)
   const [layoutVersion, setLayoutVersion] = useState(0)
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [history, setHistory] = useState<SeatObject[][]>([])
   const [redoHistory, setRedoHistory] = useState<SeatObject[][]>([])
-  const [isShareOpen, setIsShareOpen] = useState(false)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const [showUnsavedConfirm, setShowUnsavedConfirm] = useState(false)
   const [isSharedLayoutsOpen, setIsSharedLayoutsOpen] = useState(false)
@@ -230,22 +242,45 @@ export function SeatingPlanPage() {
   
   const toolbarMobileRef = useRef<HTMLDivElement>(null)
   const toolbarPcRef = useRef<HTMLDivElement>(null)
-  const shareRef = useRef<HTMLDivElement>(null)
 
-  // Tıklama ile açık menüleri kapatma (Toolbar & Share)
+  const seatFuse = useMemo(
+    () =>
+      new Fuse(students, {
+        keys: [
+          { name: 'adSoyad', weight: 0.6 },
+          { name: 'no', weight: 0.25 },
+          { name: 'pcNo', weight: 0.15 },
+        ],
+        threshold: 0.4,
+        includeScore: true,
+      }),
+    [students],
+  )
+
+  const hiddenStudentIds = useMemo(() => {
+    if (!onlyBos || !activeApplicationId) return null
+    return new Set(
+      students
+        .filter((s) => lessonSlot.marks[s.no] === 'D' || studentHasPuan(scores[s.id]))
+        .map((s) => s.id),
+    )
+  }, [students, onlyBos, activeApplicationId, scores, lessonSlot.marks])
+
+  const searchMatchIds = useMemo(() => {
+    const q = seatSearch.trim()
+    if (!q) return null
+    return new Set(seatFuse.search(q).map((r) => r.item.id))
+  }, [seatSearch, seatFuse])
+
+  // Tıklama ile açık menüleri kapatma (Toolbar)
   useEffect(() => {
-    if (!isToolbarOpen && !isShareOpen) return;
+    if (!isToolbarOpen) return;
     const handleClickOutside = (e: MouseEvent | TouchEvent) => {
       const target = e.target as Node;
-      if (isToolbarOpen) {
-        const isInsideMobile = toolbarMobileRef.current?.contains(target);
-        const isInsidePc = toolbarPcRef.current?.contains(target);
-        if (!isInsideMobile && !isInsidePc) {
-          setIsToolbarOpen(false);
-        }
-      }
-      if (isShareOpen && shareRef.current && !shareRef.current.contains(target)) {
-        setIsShareOpen(false);
+      const isInsideMobile = toolbarMobileRef.current?.contains(target);
+      const isInsidePc = toolbarPcRef.current?.contains(target);
+      if (!isInsideMobile && !isInsidePc) {
+        setIsToolbarOpen(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside, { capture: true });
@@ -254,11 +289,12 @@ export function SeatingPlanPage() {
       document.removeEventListener('mousedown', handleClickOutside, { capture: true });
       document.removeEventListener('touchstart', handleClickOutside, { capture: true });
     };
-  }, [isToolbarOpen, isShareOpen]);
+  }, [isToolbarOpen]);
 
   // Zoom ölçeğine göre hareketleri düzenleyen dnd modifier
   // useRef kullanıyoruz — closure stale'ini önler, modifier her zaman güncel scale'i okur
   const scaleRef = useRef(1);
+  const panOriginRef = useRef<{ x: number; y: number } | null>(null);
   // Custom wheel zoom için refs
   const transformUtilsRef = useRef<any>(null);
   const canvasContainerRef = useRef<HTMLDivElement>(null);
@@ -533,6 +569,17 @@ export function SeatingPlanPage() {
     })
   }, [activeApplicationId])
 
+  const handleKisaNotChange = async (studentId: string, kisaNot: string) => {
+    const student = students.find((s) => s.id === studentId)
+    if (student?.no) await lessonSlot.setNote(student.no, kisaNot)
+    if (!activeApplicationId) return
+    await setScore(activeApplicationId, studentId, { kisaNot })
+    setScores((prev) => ({
+      ...prev,
+      [studentId]: { ...prev[studentId], id: studentId, applicationId: activeApplicationId, studentId, kisaNot },
+    }))
+  }
+
   const handleScoreChange = async (studentId: string, puan: string) => {
     if (!activeApplicationId) return
     const val = puan === '' ? null : Number(puan)
@@ -543,14 +590,22 @@ export function SeatingPlanPage() {
     }))
   }
 
-  const handleDevamsizToggle = async (studentId: string) => {
+  const handleAttendanceMark = async (studentId: string, mark: AttendanceMark) => {
+    const student = students.find((s) => s.id === studentId)
+    if (!student?.no) return
+    const fields = attendanceScoreFields(visibleAttendanceMark(lessonSlot.marks[student.no], scores[studentId]), mark)
+    await lessonSlot.setMark(student.no, mark)
     if (!activeApplicationId) return
-    const current = scores[studentId]?.devamsiz ?? false
-    const next = !current
-    await setScore(activeApplicationId, studentId, { devamsiz: next })
+    await setScore(activeApplicationId, studentId, fields)
     setScores((prev) => ({
       ...prev,
-      [studentId]: { ...prev[studentId], id: studentId, applicationId: activeApplicationId, studentId, devamsiz: next },
+      [studentId]: {
+        ...prev[studentId],
+        id: studentId,
+        applicationId: activeApplicationId,
+        studentId,
+        ...fields,
+      },
     }))
   }
 
@@ -1135,10 +1190,11 @@ export function SeatingPlanPage() {
   // DND Handlers
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
-    useSensor(SmartTouchSensor, { 
-      activationConstraint: { 
-        distance: 5 // Direkt sürüklenme için mesafe sınırı
-      } 
+    useSensor(SmartTouchSensor, {
+      activationConstraint: {
+        delay: 300,
+        tolerance: 10,
+      },
     }) 
   )
 
@@ -1245,7 +1301,7 @@ export function SeatingPlanPage() {
   // Sayfa yükleniyorsa
   if (courseLoading || studentsLoading) {
     return (
-      <Layout title="Oturma Planı Yükleniyor" showBack backTitle="Liste Görünümü">
+      <Layout title="Oturma Planı Yükleniyor" showBack backTitle="Liste Görünümü" hideNav>
         <div className="flex h-[60vh] items-center justify-center">
           <Loader2 className="w-10 h-10 animate-spin text-primary" />
         </div>
@@ -1269,6 +1325,7 @@ export function SeatingPlanPage() {
       showBack 
       backTitle="Liste Görünümü"
       hideTitleOnDesktop={true}
+      hideNav
       onBackClick={handleBackNavigation}
       leftExtra={
         <div className="flex flex-col items-start gap-0.5">
@@ -1310,6 +1367,15 @@ export function SeatingPlanPage() {
           {/* Ayarlar Dropdown Menu (Mobile Only) */}
           <div className={`absolute top-full mt-2 right-0 z-[210] transition-all duration-300 ease-out origin-top-right flex flex-col ${isToolbarOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-4 pointer-events-none'}`}>
             <div className="flex flex-col bg-white border border-slate-200 shadow-2xl rounded-[24px] p-2 gap-1 items-stretch w-[160px]">
+               <Button variant="ghost" onClick={() => { setIsToolbarOpen(false); setPreviewOpen(true); }} className="h-10 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-blue-50 hover:text-blue-700 transition-colors">
+                 <Eye className="w-4 h-4 text-blue-500" />
+                 <span className="text-[11px] font-bold tracking-wide uppercase">Önizleme</span>
+               </Button>
+               <Button variant="ghost" onClick={() => { setIsToolbarOpen(false); void handleDownloadExcel(); }} className="h-10 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-green-50 hover:text-green-700 transition-colors">
+                 <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                 <span className="text-[11px] font-bold tracking-wide uppercase">Excel İndir</span>
+               </Button>
+               <div className="w-full h-px bg-slate-100 my-1" />
                <Button variant="ghost" onClick={addEmptyDesk} className="h-10 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-slate-100 hover:text-slate-800 transition-colors">
                  <Plus className="w-4 h-4 text-slate-500" />
                  <span className="text-[11px] font-bold tracking-wide uppercase">Sıra Ekle</span>
@@ -1366,6 +1432,14 @@ export function SeatingPlanPage() {
       <div className="absolute inset-0 top-14 md:top-0 bg-[#e5e7eb] overflow-hidden flex flex-col z-0">
         {/* Canvas Alanı */}
         <div ref={canvasContainerRef} className="flex-1 relative h-full w-full bg-[#e5e7eb] touch-none">
+          <button
+            type="button"
+            onClick={() => setSeatToolsOpen((v) => !v)}
+            aria-label={seatToolsOpen ? 'Araçları gizle' : 'Araçları aç'}
+            className="absolute left-1/2 top-0 z-50 flex h-5 w-9 -translate-x-1/2 items-center justify-center rounded-b-lg border border-t-0 border-white/70 bg-white text-slate-700 shadow-md"
+          >
+            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${seatToolsOpen ? 'rotate-180' : ''}`} />
+          </button>
 
           <TransformWrapper
             minScale={0.1}
@@ -1376,8 +1450,14 @@ export function SeatingPlanPage() {
             centerOnInit={false}
             limitToBounds={false}
             wheel={{ disabled: true }}
-            panning={{ disabled: activeId !== null, excluded: ['drv-draggable'] }}
-            onTransform={(ref: any) => { scaleRef.current = ref.state.scale; }}
+            panning={{ disabled: activeId !== null }}
+            onTransform={(ref: any) => {
+              scaleRef.current = ref.state.scale
+              const { positionX, positionY } = ref.state
+              const prev = panOriginRef.current
+              if (prev && (prev.x !== positionX || prev.y !== positionY)) setSeatToolsOpen(false)
+              panOriginRef.current = { x: positionX, y: positionY }
+            }}
           >
             {(utils: any) => {
               transformUtilsRef.current = utils;
@@ -1429,70 +1509,42 @@ export function SeatingPlanPage() {
                 utils.setTransform(tx, ty, idealScale, 300);
               };
 
-              const handleZoomStep = (multiplier: number) => {
-                const state = utils.state;
-                if (!state) return;
-                
-                // Ekranın tam merkezi
-                const wrapperW = window.innerWidth;
-                const wrapperH = window.innerHeight - 56; // Header yüksekliğini çıkar
-                const viewCenterX = wrapperW / 2;
-                const viewCenterY = wrapperH / 2;
-
-                const currentScale = state.scale;
-                const currentTx = state.positionX;
-                const currentTy = state.positionY;
-
-                let newScale = currentScale * multiplier;
-                newScale = Math.max(0.1, Math.min(newScale, 3));
-
-                // Şu an tam ekran merkezinin altında kalan noktanın saf koordinatlarını bul
-                const layoutCx = (viewCenterX - currentTx) / currentScale;
-                const layoutCy = (viewCenterY - currentTy) / currentScale;
-
-                // Yeni ölçekte bu noktanın tekrar ekran merkezinde kalması için gereken kaydırmayı (tx/ty) hesapla
-                const newTx = viewCenterX - layoutCx * newScale;
-                const newTy = viewCenterY - layoutCy * newScale;
-
-                utils.setTransform(newTx, newTy, newScale, 150);
-              };
-
               return (
                 <>
                   <AutoFitter onFit={handleHome} loaded={!courseLoading && !studentsLoading && objects.length > 0} layoutVersion={layoutVersion} />
-                  
-                  {/* Üst Sol Buton Grubu — header altı (mobil 5px) */}
-                  <div className="absolute left-3 top-[5px] md:left-[50px] md:top-16 z-40 flex flex-row md:flex-col gap-1.5">
+                    {seatToolsOpen && (
+                    <div className="absolute left-3 top-[5px] z-40 flex flex-row items-end gap-1.5 md:left-[50px] md:top-16 md:flex-col md:items-start">
                     {/* Düzen Butonları (Grup 1) */}
-                    <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-md rounded-xl overflow-hidden pointer-events-auto transition-all">
-                      <button 
-                        onClick={() => switchMode('classroom')} 
-                        className={`w-8 h-8 flex items-center justify-center transition-all group border-r border-slate-200/50 ${layoutMode === 'classroom' ? 'bg-primary/10 text-primary' : 'text-slate-800 hover:bg-white'}`} 
-                        title="Sınıf Düzeni"
-                      >
-                        <ClassroomDotsIcon className={`w-4 h-4 group-hover:scale-110 transition-transform ${layoutMode === 'classroom' ? 'opacity-100' : 'opacity-70'}`} />
-                      </button>
-                      <button 
-                        onClick={() => switchMode('lab')} 
-                        className={`w-8 h-8 flex items-center justify-center transition-all group ${layoutMode === 'lab' ? 'bg-primary/10 text-primary' : 'text-slate-800 hover:bg-white'}`} 
-                        title="Lab Düzeni"
-                      >
-                        <LabDotsIcon className={`w-4 h-4 group-hover:scale-110 transition-transform ${layoutMode === 'lab' ? 'opacity-100' : 'opacity-70'}`} />
-                      </button>
+                    <div className="flex flex-col gap-0.5 shrink-0 pointer-events-auto">
+                      <div className="flex flex-row">
+                        <span className="flex h-[10px] w-8 items-center justify-center whitespace-nowrap text-[9px] font-bold leading-none text-slate-700">
+                          Sınıf
+                        </span>
+                        <span className="flex h-[10px] w-8 items-center justify-center whitespace-nowrap text-[9px] font-bold leading-none text-slate-700">
+                          Lab
+                        </span>
+                      </div>
+                      <div className="flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-md rounded-xl overflow-hidden transition-all">
+                        <button 
+                          onClick={() => switchMode('classroom')} 
+                          className={`w-8 h-8 flex items-center justify-center transition-all group border-r border-slate-200/50 ${layoutMode === 'classroom' ? 'bg-primary/10 text-primary' : 'text-slate-800 hover:bg-white'}`} 
+                          title="Sınıf Düzeni"
+                        >
+                          <ClassroomDotsIcon className={`w-4 h-4 group-hover:scale-110 transition-transform ${layoutMode === 'classroom' ? 'opacity-100' : 'opacity-70'}`} />
+                        </button>
+                        <button 
+                          onClick={() => switchMode('lab')} 
+                          className={`w-8 h-8 flex items-center justify-center transition-all group ${layoutMode === 'lab' ? 'bg-primary/10 text-primary' : 'text-slate-800 hover:bg-white'}`} 
+                          title="Lab Düzeni"
+                        >
+                          <LabDotsIcon className={`w-4 h-4 group-hover:scale-110 transition-transform ${layoutMode === 'lab' ? 'opacity-100' : 'opacity-70'}`} />
+                        </button>
+                      </div>
                     </div>
 
-                    {/* Zoom Butonları (Grup 2) */}
-                    <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-md rounded-xl overflow-hidden pointer-events-auto transition-all">
-                      <button onClick={() => handleZoomStep(0.85)} className="w-8 h-8 flex items-center justify-center text-slate-800 hover:bg-white transition-all group border-r border-slate-200/50" title="Uzaklaştır">
-                        <ZoomOut className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                      </button>
-                      <button onClick={() => handleZoomStep(1.15)} className="w-8 h-8 flex items-center justify-center text-slate-800 hover:bg-white transition-all group" title="Yakınlaştır">
-                        <ZoomIn className="w-4 h-4 group-hover:scale-110 transition-transform" />
-                      </button>
-                    </div>
-
-                    {/* Geçmiş Butonları (Grup 3) */}
-                    <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-md rounded-xl overflow-hidden pointer-events-auto transition-all">
+                    {/* Geçmiş Butonları */}
+                    <div className="flex flex-row items-end gap-1.5 pointer-events-auto">
+                    <div className="shrink-0 flex flex-row bg-white/80 backdrop-blur-md border border-white/60 shadow-md rounded-xl overflow-hidden transition-all">
                       <button disabled={history.length === 0} onClick={handleUndo} className="w-8 h-8 flex items-center justify-center text-slate-800 hover:bg-white transition-all group border-r border-slate-200/50 disabled:opacity-50 disabled:cursor-not-allowed" title="Geri Al">
                         <Undo2 className="w-4 h-4 group-hover:-rotate-12 transition-transform" />
                       </button>
@@ -1500,39 +1552,60 @@ export function SeatingPlanPage() {
                         <Redo2 className="w-4 h-4 group-hover:rotate-12 transition-transform" />
                       </button>
                     </div>
-
-                      {/* Paylaş Butonu */}
-                      <div className="relative pointer-events-auto" ref={shareRef}>
-                        <button 
-                          onClick={() => setIsShareOpen(!isShareOpen)} 
-                          className={`w-8 h-8 flex items-center justify-center bg-white/80 backdrop-blur-md border border-white/60 shadow-md rounded-xl text-slate-800 transition-all ${isShareOpen ? 'bg-white' : 'hover:bg-white active:scale-95'}`} 
-                          title="Paylaş"
+                    <div className="flex shrink-0 flex-col items-center gap-0.5">
+                      <span className="flex h-[10px] items-center whitespace-nowrap text-[9px] font-bold leading-none text-slate-700">
+                        Girilmeyenler
+                      </span>
+                      <button
+                        type="button"
+                        role="switch"
+                        aria-checked={onlyBos}
+                        aria-label="Not Girilmeyenler"
+                        disabled={!activeApplicationId}
+                        onClick={() => setOnlyBos((v) => !v)}
+                        title={activeApplicationId ? 'Not Girilmeyenler' : 'Önce bir uygulama seçin'}
+                        className={cn(
+                          'h-8 shrink-0 inline-flex items-center gap-1 rounded-xl border border-white/60 bg-white/80 px-1.5 shadow-md backdrop-blur-md',
+                          onlyBos && 'border-primary bg-blue-50',
+                          !activeApplicationId && 'opacity-50 pointer-events-none'
+                        )}
+                      >
+                        <span
+                          aria-hidden
+                          className={cn(
+                            'relative h-4 w-7 shrink-0 rounded-full transition-colors',
+                            onlyBos ? 'bg-primary' : 'bg-slate-300'
+                          )}
                         >
-                          <Printer className={`w-4 h-4 transition-transform duration-300 ${isShareOpen ? 'scale-110 text-primary' : ''}`} />
+                          <span
+                            className={cn(
+                              'absolute top-0.5 left-0.5 h-3 w-3 rounded-full bg-white shadow transition-transform',
+                              onlyBos && 'translate-x-3'
+                            )}
+                          />
+                        </span>
+                      </button>
+                    </div>
+                    <div className="relative w-[9.5rem] shrink-0">
+                      <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                      <Input
+                        value={seatSearch}
+                        onChange={(e) => setSeatSearch(e.target.value)}
+                        placeholder="Akıllı arama..."
+                        className="h-8 rounded-xl border-white/60 bg-white/80 pl-7 pr-7 text-xs shadow-md backdrop-blur-md"
+                      />
+                      {seatSearch && (
+                        <button
+                          type="button"
+                          className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                          onClick={() => setSeatSearch('')}
+                          aria-label="Aramayı temizle"
+                        >
+                          <X className="h-3.5 w-3.5" />
                         </button>
-
-                        {/* Paylaş Seçenek Kartı */}
-                        <div className={`absolute top-full mt-2 right-0 md:top-0 md:left-full md:ml-3 z-[210] transition-all duration-300 ease-out origin-top-right md:origin-left flex flex-col ${isShareOpen ? 'opacity-100 scale-100 translate-y-0 md:translate-x-0' : 'opacity-0 scale-95 -translate-y-4 md:-translate-x-4 pointer-events-none'}`}>
-                          <div className="flex flex-col bg-white border border-slate-200 shadow-2xl rounded-[24px] p-2 gap-1 items-stretch w-[180px]">
-                            <div className="px-3 py-2 border-b border-slate-50 mb-1">
-                              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Sınıf Oturma Planı</span>
-                            </div>
-                            <Button variant="ghost" onClick={() => { setIsShareOpen(false); setPreviewOpen(true); }} className="h-10 px-3 flex items-center justify-start gap-3 rounded-xl hover:bg-blue-50 hover:text-blue-700 transition-all group">
-                              <div className="w-7 h-7 bg-blue-100 rounded-lg flex items-center justify-center group-hover:bg-blue-600 group-hover:text-white transition-colors">
-                                <Eye className="w-4 h-4" />
-                              </div>
-                              <span className="text-[11px] font-bold tracking-wide uppercase">Önizleme</span>
-                            </Button>
-                            <Button variant="ghost" onClick={handleDownloadExcel} className="h-10 px-3 flex items-center justify-start gap-3 rounded-xl hover:bg-green-50 hover:text-green-700 transition-all group">
-                              <div className="w-7 h-7 bg-green-100 rounded-lg flex items-center justify-center group-hover:bg-green-600 group-hover:text-white transition-colors">
-                                <FileSpreadsheet className="w-4 h-4" />
-                              </div>
-                              <span className="text-[11px] font-bold tracking-wide uppercase">Excel İndir</span>
-                            </Button>
-
-                          </div>
-                        </div>
-                      </div>
+                      )}
+                    </div>
+                    </div>
 
                       {/* Ayarlar Butonu (PC için) */}
                       <div className="hidden md:block relative pointer-events-auto" ref={toolbarPcRef}>
@@ -1547,6 +1620,15 @@ export function SeatingPlanPage() {
                       {/* Ayarlar Dropdown Menu (PC Only) */}
                       <div className={`absolute top-full mt-2 left-0 z-[210] transition-all duration-300 ease-out origin-top-left flex flex-col ${isToolbarOpen ? 'opacity-100 scale-100 translate-y-0' : 'opacity-0 scale-95 -translate-y-4 pointer-events-none'}`}>
                         <div className="flex flex-col bg-white border border-slate-200 shadow-2xl rounded-[24px] p-2 gap-1 items-stretch w-[160px]">
+                           <Button variant="ghost" onClick={() => { setIsToolbarOpen(false); setPreviewOpen(true); }} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-blue-50 hover:text-blue-700 transition-colors">
+                             <Eye className="w-4 h-4 text-blue-500" />
+                             <span className="text-[11px] font-bold tracking-wide uppercase">Önizleme</span>
+                           </Button>
+                           <Button variant="ghost" onClick={() => { setIsToolbarOpen(false); void handleDownloadExcel(); }} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-green-50 hover:text-green-700 transition-colors">
+                             <FileSpreadsheet className="w-4 h-4 text-green-600" />
+                             <span className="text-[11px] font-bold tracking-wide uppercase">Excel İndir</span>
+                           </Button>
+                           <div className="w-full h-px bg-slate-100 my-0.5" />
                            <Button variant="ghost" onClick={addEmptyDesk} className="h-9 px-3 flex items-center justify-start gap-2.5 rounded-xl hover:bg-slate-100 hover:text-slate-800 transition-colors">
                              <Plus className="w-4 h-4 text-slate-500" />
                              <span className="text-[11px] font-bold tracking-wide uppercase">Sıra Ekle</span>
@@ -1597,7 +1679,8 @@ export function SeatingPlanPage() {
                         </div>
                       </div>
                     </div>
-                  </div>
+                    </div>
+                    )}
 
                   {/* Çoklu Seçim Araç Çubuğu */}
                   <div className={`absolute md:top-6 top-14 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 backdrop-blur-md border border-slate-700 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-4 transition-all duration-300 origin-top ${isSelectionMode ? 'translate-y-4 opacity-100 scale-100' : '-translate-y-8 opacity-0 scale-95 pointer-events-none'}`}>
@@ -1687,11 +1770,19 @@ export function SeatingPlanPage() {
                             }
 
                             const isDeskItem = obj.type === 'student' || obj.type === 'empty_desk';
+                            const linkedStudentId =
+                              obj.type === 'student'
+                                ? obj.studentId
+                                : obj.type === 'pc_label' && obj.linkedStudentId && students.some((s) => s.id === obj.linkedStudentId)
+                                  ? obj.linkedStudentId
+                                  : undefined
+                            const ghost = !!(linkedStudentId && hiddenStudentIds?.has(linkedStudentId))
 
                             return (
                               <DraggableItem
                                 key={obj.id}
                                 item={obj}
+                                ghost={ghost}
                                 student={mockStudent}
                                 pcLabelSide={pcLabelSide}
                                 showPcLabelDirectionMenu={layoutMode === 'lab' && isDeskItem}
@@ -1709,10 +1800,20 @@ export function SeatingPlanPage() {
                                 isSelectionMode={isSelectionMode}
                                 isSelected={selectedIds.includes(obj.id)}
                                 isFollowerDrag={isFollowerDrag}
+                                dimmed={!!(linkedStudentId && searchMatchIds && !searchMatchIds.has(linkedStudentId))}
                                 activeApplicationId={activeApplicationId}
                                 score={obj.type === 'student' && obj.studentId ? scores[obj.studentId] : undefined}
+                                attendanceMark={
+                                  obj.type === 'student' && obj.studentId
+                                    ? visibleAttendanceMark(
+                                        lessonSlot.marks[students.find((s) => s.id === obj.studentId)?.no ?? ''],
+                                        scores[obj.studentId],
+                                      )
+                                    : undefined
+                                }
                                 onNumpadOpen={(studentId) => setNumpadOpenFor(studentId)}
-                                onDevamsizToggle={handleDevamsizToggle}
+                                onDevamsizToggle={(studentId) => void handleAttendanceMark(studentId, 'D')}
+                                onGecToggle={(studentId) => void handleAttendanceMark(studentId, 'G')}
                                 onCameraOpen={openCameraForStudent}
                                 onFileUpload={handleFileUpload}
                                 onSelectionToggle={() => {
@@ -1768,8 +1869,25 @@ export function SeatingPlanPage() {
         isOpen={!!numpadOpenFor}
         onClose={() => setNumpadOpenFor(null)}
         value={numpadOpenFor ? (scores[numpadOpenFor]?.puan?.toString() ?? '') : ''}
-        student={numpadOpenFor ? (() => { const s = students.find(st => st.id === numpadOpenFor); return s ? { adSoyad: s.adSoyad, no: s.no, foto: s.foto } : undefined })()
+        student={numpadOpenFor ? (() => { const s = students.find(st => st.id === numpadOpenFor); return s ? { adSoyad: s.adSoyad, no: s.no, foto: s.foto, pcNo: s.pcNo } : undefined })()
           : undefined}
+        profileHref={numpadOpenFor && courseId ? `/courses/${courseId}/students/${numpadOpenFor}` : undefined}
+        absent={numpadOpenFor ? (() => {
+          const s = students.find((st) => st.id === numpadOpenFor)
+          return s ? visibleAttendanceMark(lessonSlot.marks[s.no], scores[s.id]) === 'D' : false
+        })() : false}
+        onAbsent={() => { if (numpadOpenFor) void handleAttendanceMark(numpadOpenFor, 'D') }}
+        onCamera={() => { if (numpadOpenFor) void openCameraForStudent(numpadOpenFor) }}
+        onUpload={(file) => {
+          if (!numpadOpenFor) return
+          const named = new File([file], file.name, { type: file.type })
+          void uploadStudentPhoto(named, numpadOpenFor)
+        }}
+        note={numpadOpenFor ? (() => {
+          const s = students.find((st) => st.id === numpadOpenFor)
+          return (s ? lessonSlot.notes[s.no] : undefined) ?? scores[numpadOpenFor]?.kisaNot ?? ''
+        })() : ''}
+        onNoteChange={(text) => { if (numpadOpenFor) void handleKisaNotChange(numpadOpenFor, text) }}
         onChange={(val) => {
           if (numpadOpenFor) handleScoreChange(numpadOpenFor, val)
         }}

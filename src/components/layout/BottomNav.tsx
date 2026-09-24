@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react'
-import { BookOpen, Search, School, Users, CalendarDays, CalendarRange, User } from 'lucide-react'
+import { BookOpen, Search, School, CalendarDays, CalendarRange, User } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
+import { pickTimetableId, useTimetables } from '@/hooks/useTimetables'
 
 interface BottomNavProps {
   onSearchOpen: () => void
@@ -38,7 +39,13 @@ function NavItem({
 export function BottomNav({ onSearchOpen }: BottomNavProps) {
   const location = useLocation()
   const navigate = useNavigate()
+  const { items: timetables } = useTimetables()
   const path = location.pathname
+
+  const openProgram = () => {
+    const id = pickTimetableId(timetables)
+    navigate(id ? `/ders-programlari/${id}` : '/ders-programlari')
+  }
 
   const isActive = (prefix: string) => path.startsWith(prefix)
 
@@ -54,9 +61,6 @@ export function BottomNav({ onSearchOpen }: BottomNavProps) {
         <div className="flex min-w-0 items-end justify-evenly">
           <NavItem active={isActive('/courses')} label="Dersler" onClick={() => navigate('/courses')}>
             <BookOpen size={18} strokeWidth={isActive('/courses') ? 2.5 : 2} />
-          </NavItem>
-          <NavItem active={isActive('/classes')} label="Sınıflarım" onClick={() => navigate('/classes')}>
-            <Users size={18} strokeWidth={isActive('/classes') ? 2.5 : 2} />
           </NavItem>
           <NavItem active={isActive('/school-lists')} label="Listeler" onClick={() => navigate('/school-lists')}>
             <School size={18} strokeWidth={isActive('/school-lists') ? 2.5 : 2} />
@@ -90,7 +94,7 @@ export function BottomNav({ onSearchOpen }: BottomNavProps) {
           <NavItem
             active={isActive('/ders-programlari')}
             label="Program"
-            onClick={() => navigate('/ders-programlari')}
+            onClick={openProgram}
           >
             <CalendarRange size={18} strokeWidth={isActive('/ders-programlari') ? 2.5 : 2} />
           </NavItem>

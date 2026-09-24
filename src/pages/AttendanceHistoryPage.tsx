@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ClipboardList, Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Input } from '@/components/ui/input'
@@ -14,18 +14,33 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { useAttendanceHistory, type AttendanceSessionSummary } from '@/hooks/useClassAttendance'
+import { normalizeTime, useAttendanceHistory, type AttendanceSessionSummary } from '@/hooks/useClassAttendance'
 import { useClassRoster, type ClassRosterRow } from '@/hooks/useClassRoster'
 import { OfflineImage } from '@/components/ui/OfflineImage'
-import { useBellSchedule } from '@/hooks/useTimetables'
+import { pickTimetableId, useBellSchedule, useTimetables } from '@/hooks/useTimetables'
+import { cellKey } from '@/lib/timetable'
 import { toast } from '@/hooks/use-toast'
 import type { AttendanceMark } from '@/types'
 import { cn, formatClassName, getClassColor } from '@/lib/utils'
+
+const WEEKDAYS = ['Pazar', 'Pazartesi', 'Salı', 'Çarşamba', 'Perşembe', 'Cuma', 'Cumartesi']
 
 function formatTrDate(iso: string) {
   const [y, m, d] = iso.split('-')
   if (!y || !m || !d) return iso
   return `${d}.${m}.${y}`
+}
+
+function formatDateHeading(iso: string) {
+  const [y, m, d] = iso.split('-').map(Number)
+  if (!y || !m || !d) return formatTrDate(iso)
+  const date = new Date(y, m - 1, d)
+  const dayName = WEEKDAYS[date.getDay()] ?? ''
+  const today = new Date()
+  const startToday = new Date(today.getFullYear(), today.getMonth(), today.getDate())
+  const diff = Math.round((startToday.getTime() - date.getTime()) / 86_400_000)
+  const rel = diff === 0 ? 'Bugün' : diff === 1 ? 'Dün' : ''
+  return rel ? `${formatTrDate(iso)} ${dayName} · ${rel}` : `${formatTrDate(iso)} ${dayName}`
 }
 
 type MarkPanel = {
@@ -38,6 +53,30 @@ type PanelStudent = {
   adSoyad: string
   foto?: string
   studentId?: string
+}
+
+function lessonTitleFromCell(text: string, sinifAdi: string) {
+  const trimmed = text.trim()
+  if (!trimmed) return ''
+  const match = trimmed.match(/^(.*?)(?:\s*[-–]\s*|\s+)(\d+)\s*([A-Za-z])$/i)
+  if (!match) return trimmed
+  const klass = formatClassName(`${match[2]}${match[3]}`)
+  if (klass !== formatClassName(sinifAdi)) return ''
+  return match[1].trim()
+}
+
+function timetableLessonName(
+  cells: Record<string, string> | undefined,
+  date: string,
+  period: number | null,
+  sinifAdi: string,
+) {
+  if (!cells || period == null) return ''
+  const [y, m, d] = date.split('-').map(Number)
+  if (!y || !m || !d) return ''
+  const weekday = new Date(y, m - 1, d).getDay()
+  if (weekday < 1 || weekday > 5) return ''
+  return lessonTitleFromCell(cells[cellKey(weekday - 1, period)] ?? '', sinifAdi)
 }
 
 function listedStudents(
@@ -63,9 +102,18 @@ function listedStudents(
 
 export default function AttendanceHistoryPage() {
   const navigate = useNavigate()
+  const location = useLocation()
+  const [searchParams] = useSearchParams()
   const { sinifAdi: raw = '' } = useParams()
   const sinifAdi = formatClassName(decodeURIComponent(raw))
+  const courseId = searchParams.get('ders') || ''
+  const coursePath = courseId ? `/courses/${courseId}` : '/courses'
   const { schedule: bellSchedule } = useBellSchedule()
+  const { items: timetables } = useTimetables()
+  const timetableCells = useMemo(() => {
+    const id = pickTimetableId(timetables)
+    return timetables.find((item) => item.id === id)?.cells
+  }, [timetables])
   const { sessions, loading, deleteSession, removeStudentMark } = useAttendanceHistory(bellSchedule)
   const { rows: rosterRows, sourceCourseId } = useClassRoster(sinifAdi)
   const [search, setSearch] = useState('')
@@ -73,7 +121,7 @@ export default function AttendanceHistoryPage() {
   const [markPanel, setMarkPanel] = useState<MarkPanel | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [removingNo, setRemovingNo] = useState<string | null>(null)
-  const defterPath = `/classes/${encodeURIComponent(sinifAdi)}/yoklamalar`
+  const returnState = location.state
 
   const panelSession = useMemo(() => {
     if (!markPanel) return null
@@ -136,20 +184,21 @@ export default function AttendanceHistoryPage() {
       map.set(s.date, list)
     }
     for (const list of map.values()) {
-      list.sort((a, b) => `${a.date}T${a.time}`.localeCompare(`${b.date}T${b.time}`))
+      list.sort((a, b) => `${b.date}T${b.time}`.localeCompare(`${a.date}T${a.time}`))
     }
-    return [...map.entries()].sort(([a], [b]) => a.localeCompare(b))
+    return [...map.entries()].sort(([a], [b]) => b.localeCompare(a))
   }, [filtered])
 
   const openSession = (s: AttendanceSessionSummary) => {
-    navigate(
-      `/classes/${encodeURIComponent(s.sinifAdi)}/yoklama?tarih=${encodeURIComponent(s.date)}&saat=${encodeURIComponent(s.time)}`,
-      { state: { from: defterPath } },
-    )
+    const params = new URLSearchParams({
+      tarih: s.date,
+      saat: normalizeTime(s.time),
+    })
+    navigate(`${coursePath}?${params.toString()}`, { state: returnState })
   }
 
   const startNewAttendance = () => {
-    navigate(`/classes/${encodeURIComponent(sinifAdi)}/yoklama`, { state: { from: defterPath } })
+    navigate(coursePath, { state: returnState })
   }
 
   const confirmDelete = async () => {
@@ -167,7 +216,7 @@ export default function AttendanceHistoryPage() {
   }
 
   return (
-    <Layout title={`${sinifAdi} yoklamaları`} showBack backTo="/classes" backTitle="Sınıflarım">
+    <Layout title={`${sinifAdi} yoklamaları`} showBack backTo={coursePath} backTitle="Ders">
       <div className="space-y-6 pb-32">
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -193,8 +242,10 @@ export default function AttendanceHistoryPage() {
         ) : (
           groups.map(([date, items]) => (
             <section key={date} className="space-y-3">
-              <h2 className="text-sm font-semibold text-muted-foreground">{formatTrDate(date)}</h2>
-              {items.map((s) => (
+              <h2 className="text-sm font-semibold text-muted-foreground">{formatDateHeading(date)}</h2>
+              {items.map((s) => {
+                const lessonName = timetableLessonName(timetableCells, s.date, s.lessonPeriod, sinifAdi)
+                return (
                 <Card
                   key={s.key}
                   className={`border-l-4 ${getClassColor(s.sinifAdi)}`}
@@ -204,6 +255,9 @@ export default function AttendanceHistoryPage() {
                       <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                         {s.lessonPeriod != null ? (
                           <span className="text-base font-semibold text-primary">{s.lessonPeriod}. ders</span>
+                        ) : null}
+                        {lessonName ? (
+                          <span className="text-sm font-medium">{lessonName}</span>
                         ) : null}
                         <span
                           className={
@@ -216,6 +270,13 @@ export default function AttendanceHistoryPage() {
                         </span>
                       </p>
                       <div className="mt-1.5 flex flex-wrap gap-2">
+                        {s.dCount + s.gCount === 0 ? (
+                          <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
+                            Herkes geldi
+                          </Badge>
+                        ) : null}
+                        {s.dCount + s.gCount > 0 ? (
+                        <>
                         <button
                           type="button"
                           className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
@@ -246,6 +307,8 @@ export default function AttendanceHistoryPage() {
                             {s.gCount} G
                           </Badge>
                         </button>
+                        </>
+                        ) : null}
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -272,7 +335,8 @@ export default function AttendanceHistoryPage() {
                     </div>
                   </CardContent>
                 </Card>
-              ))}
+                )
+              })}
             </section>
           ))
         )}

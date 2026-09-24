@@ -6,6 +6,8 @@ import {
   onSnapshot,
   serverTimestamp,
   setDoc,
+  updateDoc,
+  writeBatch,
 } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { useAuth } from '@/contexts/AuthContext'
@@ -24,8 +26,17 @@ function mapTimetable(id: string, data: Record<string, unknown>): Timetable {
     lunchMinutes: Number(data.lunchMinutes ?? 60),
     lessonsPerDay: Number(data.lessonsPerDay ?? 10),
     cells: (data.cells as Record<string, string>) ?? {},
-    createdAt: created?.toDate?.() ?? new Date(),
+    sortIndex: typeof data.sortIndex === 'number' ? data.sortIndex : undefined,
+    createdAt: created?.toDate?.() ?? new Date(0),
   }
+}
+
+function compareTimetables(a: Timetable, b: Timetable) {
+  const aHas = typeof a.sortIndex === 'number'
+  const bHas = typeof b.sortIndex === 'number'
+  if (aHas && bHas && a.sortIndex !== b.sortIndex) return a.sortIndex! - b.sortIndex!
+  if (aHas !== bHas) return aHas ? -1 : 1
+  return a.createdAt.getTime() - b.createdAt.getTime()
 }
 
 export function useTimetables() {
@@ -43,7 +54,7 @@ export function useTimetables() {
       collection(db, 'timetables'),
       (snap) => {
         const list = snap.docs.map((d) => mapTimetable(d.id, d.data()))
-        list.sort((a, b) => a.teacherName.localeCompare(b.teacherName, 'tr'))
+        list.sort(compareTimetables)
         setItems(list)
         setLoading(false)
       },
@@ -125,11 +136,57 @@ export async function saveTimetable(
     cells: data.cells,
     updatedAt: serverTimestamp(),
   }
-  if (!id) payload.createdAt = serverTimestamp()
-  await setDoc(ref, payload, { merge: true })
+  if (!id) {
+    payload.createdAt = serverTimestamp()
+    await setDoc(ref, payload)
+  } else {
+    await updateDoc(ref, {
+      teacherName: data.teacherName.trim(),
+      ownerId,
+      startTime: data.startTime,
+      lessonMinutes: data.lessonMinutes,
+      breakMinutes: data.breakMinutes,
+      lunchMinutes: data.lunchMinutes,
+      lessonsPerDay: data.lessonsPerDay,
+      cells: data.cells,
+      updatedAt: serverTimestamp(),
+    })
+  }
   return ref.id
+}
+
+const SELECTED_TIMETABLE_KEY = 'ogretmen.selectedTimetableId'
+
+export function readSelectedTimetableId() {
+  try {
+    return localStorage.getItem(SELECTED_TIMETABLE_KEY) || ''
+  } catch {
+    return ''
+  }
+}
+
+export function writeSelectedTimetableId(id: string) {
+  try {
+    localStorage.setItem(SELECTED_TIMETABLE_KEY, id)
+  } catch {
+    /* depolama kapalı olabilir */
+  }
+}
+
+export function pickTimetableId(items: { id: string }[]) {
+  const selected = readSelectedTimetableId()
+  if (selected && (items.length === 0 || items.some((item) => item.id === selected))) return selected
+  return items[0]?.id ?? ''
 }
 
 export async function deleteTimetable(id: string) {
   await deleteDoc(doc(db, 'timetables', id))
+}
+
+export async function saveTimetableOrder(ids: string[]) {
+  const batch = writeBatch(db)
+  ids.forEach((id, index) => {
+    batch.update(doc(db, 'timetables', id), { sortIndex: index })
+  })
+  await batch.commit()
 }

@@ -114,6 +114,7 @@ export interface Score {
   /** kameraFotolar ile aynı sırada: kamera veya dosya yüklemesi */
   kanitKaynaklari?: ('kamera' | 'dosya')[]
   devamsiz?: boolean
+  gec?: boolean
   kisaNot?: string
 }
 
@@ -158,6 +159,7 @@ export interface Timetable {
   lunchMinutes: number
   lessonsPerDay: number
   cells: Record<string, string>
+  sortIndex?: number
   createdAt: Date
 }
 

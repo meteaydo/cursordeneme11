@@ -33,7 +33,7 @@ import {
 import { useAuth } from '@/contexts/AuthContext'
 import { toast } from '@/hooks/use-toast'
 import { useCourses } from '@/hooks/useCourses'
-import { deleteTimetable, saveTimetable, useTimetable } from '@/hooks/useTimetables'
+import { deleteTimetable, saveTimetable, useTimetable, writeSelectedTimetableId } from '@/hooks/useTimetables'
 import {
   DEFAULT_TIMETABLE,
   TIMETABLE_DAYS,
@@ -69,22 +69,23 @@ function courseListTitle(course: Course) {
   return [course.dersAdi, course.sinifAdi].map((part) => (part ?? '').trim()).filter(Boolean).join(' - ')
 }
 
-function findCourseIdForCell(text: string, courses: Course[]): string | null {
+function findCourseForCell(text: string, courses: Course[]): Course | null {
   const trimmed = text.trim()
   if (!trimmed) return null
   const exact = courses.find((c) => courseListTitle(c) === trimmed)
-  if (exact) return exact.id
+  if (exact) return exact
 
   const parsed = parseCellLesson(trimmed)
   const cellClass = parsed.grade && parsed.section ? `${parsed.grade}${parsed.section}` : ''
   if (!parsed.name || !cellClass) return null
 
-  const match = courses.find(
-    (c) =>
-      (c.dersAdi ?? '').trim().localeCompare(parsed.name, 'tr', { sensitivity: 'base' }) === 0 &&
-      formatClassName(c.sinifAdi ?? '') === formatClassName(cellClass),
+  return (
+    courses.find(
+      (c) =>
+        (c.dersAdi ?? '').trim().localeCompare(parsed.name, 'tr', { sensitivity: 'base' }) === 0 &&
+        formatClassName(c.sinifAdi ?? '') === formatClassName(cellClass),
+    ) ?? null
   )
-  return match?.id ?? null
 }
 
 function saveFailReason(error: unknown): string {
@@ -308,13 +309,28 @@ export default function TimetableEditorPage() {
   const [drag, setDrag] = useState<FillDrag | null>(null)
   const hydrated = useRef(false)
   const formRef = useRef(form)
+  const savedSnapRef = useRef(savedSnap)
   const dragRef = useRef<FillSession | null>(null)
   const draggedRef = useRef(false)
   const menuOpenedRef = useRef(false)
   const dragToken = useRef(0)
   const saveSeq = useRef(0)
+  const saveChain = useRef(Promise.resolve())
   const stopDragListeners = useRef<(() => void) | null>(null)
   formRef.current = form
+  savedSnapRef.current = savedSnap
+
+  useEffect(() => {
+    if (!isNew && id) writeSelectedTimetableId(id)
+  }, [isNew, id])
+
+  useEffect(() => {
+    return () => {
+      if (formSnapshot(formRef.current) !== savedSnapRef.current) {
+        void persistRef.current(formRef.current, true)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     if (isNew || !item || hydrated.current) return
@@ -370,6 +386,18 @@ export default function TimetableEditorPage() {
   }, [courses, form.cells])
 
   const persist = async (next: FormState, quiet = false) => {
+    if (!user) return null
+    const run = saveChain.current.then(() =>
+      persistNow(formSnapshot(formRef.current) === formSnapshot(next) ? next : formRef.current, quiet),
+    )
+    saveChain.current = run.then(
+      () => undefined,
+      () => undefined,
+    )
+    return run
+  }
+
+  const persistNow = async (next: FormState, quiet = false) => {
     if (!user) return null
     const seq = ++saveSeq.current
     setSaving(true)
@@ -786,9 +814,14 @@ export default function TimetableEditorPage() {
                                 return
                               }
                               if (isNowLesson && text.trim()) {
-                                const courseId = findCourseIdForCell(text, courses)
-                                if (courseId) {
-                                  navigate(`/courses/${courseId}`)
+                                const course = findCourseForCell(text, courses)
+                                if (course) {
+                                  const path = course.openSeatingByDefault
+                                    ? `/courses/${course.id}/seating`
+                                    : `/courses/${course.id}`
+                                  navigate(path, {
+                                    state: { courseName: course.dersAdi, className: course.sinifAdi },
+                                  })
                                   return
                                 }
                                 toast({

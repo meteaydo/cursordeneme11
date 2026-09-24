@@ -14,29 +14,38 @@ import { useCourses } from '@/hooks/useCourses'
 import { useCourseStats } from '@/hooks/useCourseStats'
 import type { CourseFormData } from '@/types'
 import { formatTitleCase, formatClassName } from '@/lib/utils'
-import { fetchClassList } from '@/services/classTemplateService'
+import { fetchClassList, gradesFromClassNames } from '@/services/classTemplateService'
 
 
 const CLASS_COLORS = [
-  'border-l-red-500',
-  'border-l-orange-500',
+  'border-l-red-600',
+  'border-l-blue-600',
+  'border-l-green-600',
   'border-l-amber-500',
-  'border-l-green-500',
-  'border-l-emerald-500',
-  'border-l-teal-500',
-  'border-l-cyan-500',
-  'border-l-sky-500',
-  'border-l-blue-500',
-  'border-l-indigo-500',
-  'border-l-violet-500',
-  'border-l-purple-500',
-  'border-l-fuchsia-500',
-  'border-l-pink-500',
-  'border-l-rose-500',
+  'border-l-purple-600',
+  'border-l-pink-600',
+  'border-l-orange-600',
+  'border-l-cyan-600',
+]
+
+function classSortParts(sinifAdi: string) {
+  const match = sinifAdi.toUpperCase().match(/(\d+)\s*[-/]?\s*([A-Z]+)?/)
+  return {
+    grade: match ? Number(match[1]) : 999,
+    section: match?.[2] || 'Z',
+  }
+}
+
+const CLASS_COLOR_ORDER = [
+  '9A', '9B', '10A', '10B', '11A', '11B', '12A', '12B',
+  '9C', '10C', '11C', '12C', '9D', '10D', '11D', '12D',
 ]
 
 const getClassColor = (className: string) => {
-  if (!className) return 'border-l-primary'
+  const key = className.toUpperCase().replace(/[^0-9A-Z]/g, '')
+  const index = CLASS_COLOR_ORDER.indexOf(key)
+  if (index >= 0) return CLASS_COLORS[index % CLASS_COLORS.length]
+  if (!className) return 'border-l-slate-400'
   let hash = 0
   for (let i = 0; i < className.length; i++) {
     hash = className.charCodeAt(i) + ((hash << 5) - hash)
@@ -73,9 +82,8 @@ export default function CoursesPage() {
   useEffect(() => {
     fetchClassList().then(list => {
       setClassList(list)
-      const g = Array.from(new Set(list.map(c => c.match(/^\d+/)?.[0]).filter(Boolean))) as string[]
       const s = Array.from(new Set(list.map(c => c.match(/[A-Z]+$/)?.[0]).filter(Boolean))) as string[]
-      setGrades(g.sort((a, b) => Number(a) - Number(b)))
+      setGrades(gradesFromClassNames(list))
       setSections(s.sort())
     })
   }, [])
@@ -96,8 +104,11 @@ export default function CoursesPage() {
         c.sinifAdi.toLowerCase().includes(search.toLowerCase()),
     )
     .sort((a, b) => {
-      const sinifKiyas = a.sinifAdi.localeCompare(b.sinifAdi, 'tr', { numeric: true })
-      if (sinifKiyas !== 0) return sinifKiyas
+      const ka = classSortParts(a.sinifAdi)
+      const kb = classSortParts(b.sinifAdi)
+      if (ka.grade !== kb.grade) return ka.grade - kb.grade
+      const sectionCmp = ka.section.localeCompare(kb.section, 'tr')
+      if (sectionCmp !== 0) return sectionCmp
       return a.dersAdi.localeCompare(b.dersAdi, 'tr')
     })
 
