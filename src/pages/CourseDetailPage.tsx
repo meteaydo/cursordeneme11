@@ -30,7 +30,7 @@ import { useCourses } from '@/hooks/useCourses'
 import { queueImageUpload } from '@/lib/imageQueue'
 import { OfflineImage } from '@/components/ui/OfflineImage'
 import { toast } from '@/hooks/use-toast'
-import type { AnnualPlan, Application, AttendanceMark, Score, Student, StudentFormData } from '@/types'
+import type { AnnualPlan, Application, AttendanceMark, ClassAttendanceMarks, Score, Student, StudentFormData } from '@/types'
 import ExcelJS from 'exceljs'
 import { format } from 'date-fns'
 import { tr } from 'date-fns/locale'
@@ -39,7 +39,7 @@ import { parseStudentExcel, type ParsedStudent } from '@/lib/excelStudentParser'
 import { parseClassTemplate, fetchClassList, gradesFromClassNames } from '@/services/classTemplateService'
 import { LessonSlotHeader } from '@/components/LessonSlotHeader'
 import { attendanceScoreFields, useCourseLessonSlot, visibleAttendanceMark } from '@/hooks/useCourseLessonSlot'
-import { findSameDayEarlierAttendance, useAttendanceHistory, type AttendanceSessionSummary } from '@/hooks/useClassAttendance'
+import { findEarlierLessonToday, useAttendanceHistory, type AttendanceSessionSummary } from '@/hooks/useClassAttendance'
 import { useBellSchedule } from '@/hooks/useTimetables'
 import { parseAnnualPlanDocx } from '@/lib/annualPlanParser'
 
@@ -139,7 +139,11 @@ export default function CourseDetailPage() {
   const [appForm, setAppForm] = useState({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd'), foto: '' as string | undefined })
   const [appSaving, setAppSaving] = useState(false)
   const [newlyAddedAppId, setNewlyAddedAppId] = useState<string | null>(null)
-  const [transferAttendance, setTransferAttendance] = useState<AttendanceSessionSummary | null>(null)
+  const [transferPrompt, setTransferPrompt] = useState<AttendanceSessionSummary | null>(null)
+  const transferYes = useRef(false)
+  const pendingMarks = useRef<ClassAttendanceMarks | null>(null)
+  const pendingMerge = useRef(false)
+  const pendingSameLesson = useRef(false)
 
   // Student form
   const [studentForm, setStudentForm] = useState<StudentFormData>(EMPTY_STUDENT)
@@ -438,41 +442,112 @@ export default function CourseDetailPage() {
 
   const nextAppName = `${applications.length + 1}.Uygulama`
 
+  const lessonAttendanceMarks = () => {
+    const marks: ClassAttendanceMarks = {}
+    for (const [no, mark] of Object.entries(lessonSlot.marks)) {
+      if (mark === 'D' || mark === 'G') marks[no] = mark
+    }
+    return marks
+  }
+
+  const requestAddApp = () => {
+    const sameDayApp = applications.some((app) => app.tarih === lessonSlot.date)
+    if (sameDayApp || Object.keys(lessonAttendanceMarks()).length > 0) {
+      pendingSameLesson.current = true
+      pendingMarks.current = null
+      pendingMerge.current = false
+      setAddAppOpen(true)
+      return
+    }
+    const prev = sinifAdi
+      ? findEarlierLessonToday(attendanceSessions, sinifAdi, lessonSlot.date, lessonSlot.time, lessonSlot.lessonPeriod)
+      : null
+    if (prev) {
+      setTransferPrompt(prev)
+      return
+    }
+    pendingSameLesson.current = false
+    pendingMarks.current = null
+    pendingMerge.current = false
+    setAddAppOpen(true)
+  }
+
+  const closeTransferPrompt = (open: boolean) => {
+    if (open) return
+    const yes = transferYes.current
+    transferYes.current = false
+    const prev = transferPrompt
+    setTransferPrompt(null)
+    if (yes && prev) {
+      pendingMarks.current = { ...prev.marks }
+      pendingMerge.current = true
+      pendingSameLesson.current = false
+    } else {
+      pendingMarks.current = null
+      pendingMerge.current = false
+      pendingSameLesson.current = false
+    }
+    setAddAppOpen(true)
+  }
+
+  const writeMarksToApp = async (appId: string, marks: ClassAttendanceMarks) => {
+    const writes = []
+    for (const student of students) {
+      const mark = student.no ? marks[student.no] : undefined
+      if (mark !== 'D' && mark !== 'G') continue
+      writes.push(setScore(appId, student.id, { devamsiz: mark === 'D', gec: mark === 'G' }))
+    }
+    await Promise.all(writes)
+    return writes.length
+  }
+
+  const marksFromPreviousApp = async (tarih: string) => {
+    const marks: ClassAttendanceMarks = {}
+    const prev = applications.find((app) => app.tarih === tarih)
+    if (prev) {
+      const list = await getScores(prev.id)
+      for (const score of list) {
+        const student = students.find((s) => s.id === score.studentId)
+        if (!student?.no) continue
+        if (score.devamsiz) marks[student.no] = 'D'
+        else if (score.gec) marks[student.no] = 'G'
+      }
+    }
+    for (const [no, mark] of Object.entries(lessonAttendanceMarks())) marks[no] = mark
+    return marks
+  }
+
   const handleAddApp = async (e: React.FormEvent) => {
     e.preventDefault()
     setAppSaving(true)
     const ad = appForm.ad.trim() || nextAppName
     const tarih = appForm.tarih
-    const sameDayApp = applications.some((a) => a.tarih === tarih)
+    const marks = pendingMarks.current
+    const merge = pendingMerge.current
+    const sameLesson = pendingSameLesson.current
+    pendingMarks.current = null
+    pendingMerge.current = false
+    pendingSameLesson.current = false
     const newId = await addApplication(ad, tarih)
+    if (newId && tarih === lessonSlot.date && (sameLesson || (merge && marks))) {
+      try {
+        const source = sameLesson ? await marksFromPreviousApp(tarih) : marks!
+        const next: ClassAttendanceMarks = { ...lessonSlot.marks }
+        for (const [no, mark] of Object.entries(source)) {
+          if ((mark === 'D' || mark === 'G') && !next[no]) next[no] = mark
+        }
+        if (Object.keys(next).length > Object.keys(lessonSlot.marks).length) {
+          await lessonSlot.replaceMarks(next)
+        }
+        await writeMarksToApp(newId, source)
+      } catch {
+        toast({ title: 'Yoklama aktarılamadı', variant: 'destructive' })
+      }
+    }
     if (newId) setNewlyAddedAppId(newId)
     setAddAppOpen(false)
     setAppForm({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd'), foto: undefined })
     setAppSaving(false)
-
-    if (sameDayApp && tarih === lessonSlot.date && sinifAdi) {
-      const prev = findSameDayEarlierAttendance(
-        attendanceSessions,
-        sinifAdi,
-        lessonSlot.date,
-        lessonSlot.time,
-        lessonSlot.lessonPeriod,
-      )
-      if (prev) setTransferAttendance(prev)
-    }
-  }
-
-  const applyTransferredAttendance = async () => {
-    if (!transferAttendance) return
-    try {
-      await lessonSlot.replaceMarks({ ...transferAttendance.marks })
-      const label = transferAttendance.lessonPeriod != null
-        ? `${transferAttendance.lessonPeriod}. ders`
-        : transferAttendance.time
-      toast({ title: `${label} yoklaması aktarıldı` })
-    } catch {
-      toast({ title: 'Yoklama aktarılamadı', variant: 'destructive' })
-    }
   }
 
   const handleAddStudent = async (e: React.FormEvent) => {
@@ -1165,7 +1240,7 @@ export default function CourseDetailPage() {
                 <div className="flex-1 flex justify-center py-2"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
                 <button
                   type="button"
-                  onClick={() => setAddAppOpen(true)}
+                  onClick={requestAddApp}
                   className="shrink-0 w-10 h-10 rounded-full bg-gradient-to-b from-blue-400 to-blue-600 text-white border border-blue-500/30 shadow-[0_4px_10px_rgba(37,99,235,0.45)] flex items-center justify-center"
                   aria-label="Uygulama Ekle"
                 >
@@ -1197,7 +1272,7 @@ export default function CourseDetailPage() {
                   ))}
                 </div>
                 <button
-                  onClick={() => setAddAppOpen(true)}
+                  onClick={requestAddApp}
                   className="absolute right-0 top-1/2 -translate-y-1/2 shrink-0 w-10 h-10 rounded-full transition-all duration-200 z-10 bg-gradient-to-b from-blue-400 to-blue-600 text-white border border-blue-500/30 shadow-[0_4px_10px_rgba(37,99,235,0.45)] hover:from-blue-400 hover:to-blue-500 hover:-translate-y-[calc(50%+2px)] active:translate-y-[calc(-50%+2px)] active:shadow-[0_2px_6px_rgba(37,99,235,0.4)] active:from-blue-500 active:to-blue-600 flex items-center justify-center"
                   aria-label="Uygulama Ekle"
                 >
@@ -1207,7 +1282,7 @@ export default function CourseDetailPage() {
             )}
             {applications.length === 0 && !appsLoading && (
               <button
-                onClick={() => setAddAppOpen(true)}
+                onClick={requestAddApp}
                 className="shrink-0 self-center w-10 h-10 rounded-full transition-all duration-200 bg-gradient-to-b from-blue-400 to-blue-600 text-white border border-blue-500/30 shadow-[0_4px_10px_rgba(37,99,235,0.45)] hover:from-blue-400 hover:to-blue-500 flex items-center justify-center"
                 aria-label="Uygulama Ekle"
               >
@@ -1363,7 +1438,14 @@ export default function CourseDetailPage() {
       </div>
 
       {/* Add Application Dialog */}
-      <Dialog open={addAppOpen} onOpenChange={setAddAppOpen}>
+      <Dialog open={addAppOpen} onOpenChange={(open) => {
+        setAddAppOpen(open)
+        if (!open) {
+          pendingMarks.current = null
+          pendingMerge.current = false
+          pendingSameLesson.current = false
+        }
+      }}>
         <DialogContent className="sm:max-w-[425px]">
           <DialogHeader><DialogTitle>Uygulama Ekle</DialogTitle></DialogHeader>
           <form onSubmit={handleAddApp} className="space-y-4 pt-2">
@@ -1466,17 +1548,17 @@ export default function CourseDetailPage() {
       </Dialog>
 
       <ConfirmDialog
-        open={transferAttendance !== null}
-        onOpenChange={(open) => { if (!open) setTransferAttendance(null) }}
+        open={transferPrompt !== null}
+        onOpenChange={closeTransferPrompt}
         title="Önceki yoklamayı aktar"
         description={
-          transferAttendance?.lessonPeriod != null
-            ? `Bu sınıfta bugün ${transferAttendance.lessonPeriod}. ders yoklaması var. D ve G işaretlerini bu derse aktarmak ister misin?`
-            : 'Bu sınıfta bugün daha erken bir yoklama var. D ve G işaretlerini bu derse aktarmak ister misin?'
+          transferPrompt?.lessonPeriod != null
+            ? `${transferPrompt.lessonPeriod}. ders bitti. Yoklamayı bu derse aktarayım mı?`
+            : 'Önceki ders saati bitti. Yoklamayı bu derse aktarayım mı?'
         }
         confirmText="Aktar"
         cancelText="Hayır"
-        onConfirm={() => void applyTransferredAttendance()}
+        onConfirm={() => { transferYes.current = true }}
       />
 
       <ConfirmDialog

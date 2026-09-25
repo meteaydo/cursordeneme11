@@ -96,8 +96,7 @@ export function useApplications(courseId: string) {
       kisaNot?: string
     },
   ) => {
-    // Fire and forget for optimistic UI
-    setDoc(
+    return setDoc(
       doc(db, 'courses', courseId, 'applications', appId, 'scores', studentId),
       { studentId, ...fields },
       { merge: true },

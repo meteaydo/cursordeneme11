@@ -244,7 +244,7 @@ export default function AttendanceHistoryPage() {
             <section key={date} className="space-y-3">
               <h2 className="text-sm font-semibold text-muted-foreground">{formatDateHeading(date)}</h2>
               {items.map((s) => {
-                const lessonName = timetableLessonName(timetableCells, s.date, s.lessonPeriod, sinifAdi)
+                const lessonName = timetableLessonName(timetableCells, s.date, s.lessonPeriod ?? null, sinifAdi)
                 return (
                 <Card
                   key={s.key}

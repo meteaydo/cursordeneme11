@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import Fuse from 'fuse.js'
+import Fuse, { type IFuseOptions } from 'fuse.js'
 
 export type FuseStudentSearchRow = {
   adSoyad: string
@@ -7,7 +7,7 @@ export type FuseStudentSearchRow = {
   pcNo?: string
 }
 
-const FUSE_OPTIONS = {
+const FUSE_OPTIONS: IFuseOptions<FuseStudentSearchRow> = {
   keys: [
     { name: 'adSoyad', weight: 0.6 },
     { name: 'no', weight: 0.25 },

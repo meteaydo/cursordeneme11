@@ -261,8 +261,8 @@ export function findPreviousLessonSession(
   return earlierAny[0] ?? null
 }
 
-/** Aynı gün, bu ders saatinden önceki yoklama. Başka güne düşmez. */
-export function findSameDayEarlierAttendance(
+/** Bugün, bu ders saatinden önceki yoklama. Aynı ders saatinde kayıt aramaz. */
+export function findEarlierLessonToday(
   sessions: AttendanceSessionSummary[],
   sinifAdi: string,
   date: string,
@@ -276,20 +276,14 @@ export function findSameDayEarlierAttendance(
       formatClassName(s.sinifAdi) === ad &&
       s.date === date &&
       s.dCount + s.gCount > 0 &&
-      (lessonPeriod == null
-        ? normalizeTime(s.time) !== normalizeTime(time)
-        : s.lessonPeriod !== lessonPeriod),
+      (lessonPeriod == null || s.lessonPeriod !== lessonPeriod) &&
+      `${s.date}T${normalizeTime(s.time)}` < currentWhen,
   )
-
   if (lessonPeriod != null && lessonPeriod > 1) {
     const prevPeriod = sameDay.find((s) => s.lessonPeriod === lessonPeriod - 1)
     if (prevPeriod) return prevPeriod
   }
-
-  const earlier = sameDay
-    .filter((s) => `${s.date}T${normalizeTime(s.time)}` < currentWhen)
-    .sort((a, b) => `${b.date}T${b.time}`.localeCompare(`${a.date}T${a.time}`))
-  return earlier[0] ?? null
+  return sameDay.sort((a, b) => `${b.date}T${b.time}`.localeCompare(`${a.date}T${a.time}`))[0] ?? null
 }
 
 export type AttendanceSlot = { date: string; time: string }
