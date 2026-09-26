@@ -175,7 +175,7 @@ export function SeatingPlanPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const location = useLocation()
   const navigate = useNavigate()
-  const navState = location.state as { applicationId?: string; applicationAd?: string } | null
+  const navState = location.state as { applicationId?: string; applicationAd?: string; tarih?: string; saat?: string } | null
   
   const { courses, updateCourse, loading: courseLoading } = useCourses()
   const { students, loading: studentsLoading, updateStudent } = useStudents(courseId!)
@@ -183,7 +183,10 @@ export function SeatingPlanPage() {
 
   const course = courses.find((c) => c.id === courseId)
   const sinifAdi = formatClassName(course?.sinifAdi || '')
-  const lessonSlot = useCourseLessonSlot(sinifAdi)
+  const lessonPin = navState?.tarih
+    ? { date: navState.tarih, time: navState.saat || '00:00' }
+    : null
+  const lessonSlot = useCourseLessonSlot(sinifAdi, lessonPin)
 
   // -- STATE & REFS --
   const [scores, setScores] = useState<Record<string, Score>>({})

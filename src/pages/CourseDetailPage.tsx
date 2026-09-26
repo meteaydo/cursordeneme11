@@ -4,7 +4,7 @@ import { collection, doc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { DialogDescription } from '@/components/ui/dialog'
 import {
-  Plus, Camera, Download, Loader2, UserPlus, FileSpreadsheet, Upload, AlertTriangle, Check, Trash2, Star, StarOff, FileText, X, Eye, Search, ArrowUpDown, Menu, MoreVertical, ImageIcon, CalendarDays
+  Plus, Camera, Download, Loader2, UserPlus, FileSpreadsheet, Upload, AlertTriangle, Check, Trash2, Star, StarOff, FileText, X, Eye, Search, ArrowUpDown, Menu, MoreVertical, ImageIcon, CalendarDays, Minus
 } from 'lucide-react'
 import Fuse from 'fuse.js'
 import { Layout } from '@/components/layout/Layout'
@@ -38,9 +38,11 @@ import { formatTitleCase, formatClassName, getScoreKameraFotolar, getScoreKanitS
 import { parseStudentExcel, type ParsedStudent } from '@/lib/excelStudentParser'
 import { parseClassTemplate, fetchClassList, gradesFromClassNames } from '@/services/classTemplateService'
 import { LessonSlotHeader } from '@/components/LessonSlotHeader'
+import { TimeInput24 } from '@/components/ui/time-input-24'
 import { attendanceScoreFields, useCourseLessonSlot, visibleAttendanceMark } from '@/hooks/useCourseLessonSlot'
-import { findEarlierLessonToday, useAttendanceHistory, type AttendanceSessionSummary } from '@/hooks/useClassAttendance'
+import { findEarlierLessonToday, lessonAttendanceKey, normalizeTime, useAttendanceHistory, useClassAttendance, useRecordPresentLessons, type AttendanceSessionSummary } from '@/hooks/useClassAttendance'
 import { useBellSchedule } from '@/hooks/useTimetables'
+import { findLessonPeriodForTime, type BellSchedule } from '@/lib/timetable'
 import { parseAnnualPlanDocx } from '@/lib/annualPlanParser'
 
 const EMPTY_STUDENT: StudentFormData = {
@@ -62,6 +64,19 @@ function compareStudentsBySortKey(a: Student, b: Student, key: StudentListSortKe
     return (a.pcNo || '').localeCompare(b.pcNo || '', 'tr', { numeric: true })
   }
   return a.adSoyad.localeCompare(b.adSoyad, 'tr')
+}
+
+function appClock(app: { saat?: string; createdAt?: Date }) {
+  if (app.saat) return app.saat
+  if (!app.createdAt || Number.isNaN(app.createdAt.getTime())) return ''
+  return format(app.createdAt, 'HH:mm')
+}
+
+function appWhenLabel(time: string, schedule: BellSchedule | null | undefined) {
+  if (!time) return ''
+  if (!schedule) return time
+  const period = findLessonPeriodForTime(schedule, time)
+  return period != null ? `${period}. ders` : time
 }
 
 function studentHasPuan(score?: Score): boolean {
@@ -105,19 +120,58 @@ export default function CourseDetailPage() {
   const id = courseId!
 
   const state = location.state as { courseName?: string; className?: string; fromTemplate?: boolean } | null
-  const pageTitle = state?.courseName ? `${state.courseName} - ${state.className}` : "Ders Uygulamaları"
 
   const { students, loading: studentsLoading, addStudent, addStudentsBulk } = useStudents(id)
   const { applications, loading: appsLoading, addApplication, updateApplication, deleteApplication, getScores, setScore } = useApplications(id)
   const { courses, updateCourse } = useCourses()
   const course = useMemo(() => courses.find((c) => c.id === id), [courses, id])
   const sinifAdi = formatClassName(course?.sinifAdi || state?.className || '')
-  const lessonSlot = useCourseLessonSlot(sinifAdi)
-  const { schedule: bellSchedule } = useBellSchedule()
+  const dersAdi = course?.dersAdi || state?.courseName || ''
+  const pageTitle = dersAdi ? `${dersAdi} - ${sinifAdi}` : 'Ders Uygulamaları'
+  const { schedule: bellSchedule, loading: scheduleLoading } = useBellSchedule()
   const { sessions: attendanceSessions } = useAttendanceHistory(bellSchedule)
+  const [presentLessonStamps, setPresentLessonStamps] = useState<{ date: string; time: string; marks: ClassAttendanceMarks }[]>([])
+  const lessonStampKey = applications.map((app) => `${app.id}|${app.tarih}|${app.saat || ''}`).join(';')
+  useEffect(() => {
+    if (scheduleLoading || appsLoading || !bellSchedule || !sinifAdi || !applications.length || !students.length) return
+    let cancelled = false
+    void (async () => {
+      const groups = new Map<string, { date: string; time: string; marks: ClassAttendanceMarks }>()
+      for (const app of applications) {
+        const clock = normalizeTime(appClock(app) || '00:00')
+        const period = findLessonPeriodForTime(bellSchedule, clock)
+        const key = lessonAttendanceKey(sinifAdi, app.tarih, period, clock)
+        const group = groups.get(key) ?? { date: app.tarih, time: clock, marks: {} }
+        const scores = await getScores(app.id)
+        if (cancelled) return
+        for (const score of scores) {
+          if (!score.devamsiz && !score.gec) continue
+          const student = students.find((item) => item.id === score.studentId)
+          if (!student?.no || group.marks[student.no]) continue
+          group.marks[student.no] = score.devamsiz ? 'D' : 'G'
+        }
+        groups.set(key, group)
+      }
+      if (!cancelled) setPresentLessonStamps([...groups.values()])
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [lessonStampKey, students, bellSchedule, sinifAdi, scheduleLoading, appsLoading, applications])
+  useRecordPresentLessons(sinifAdi, presentLessonStamps, bellSchedule, !scheduleLoading && !appsLoading)
+  const nowSlot = useMemo(() => {
+    const d = new Date()
+    return { date: format(d, 'yyyy-MM-dd'), time: format(d, 'HH:mm') }
+  }, [])
 
   // Selected application for scoring
   const [selectedApp, setSelectedApp] = useState<Application | null>(null)
+  const activeApp = applications.find((a) => a.id === selectedApp?.id) ?? selectedApp
+  const lessonPin = activeApp?.tarih
+    ? { date: activeApp.tarih, time: appClock(activeApp) || '00:00' }
+    : null
+  const lessonSlot = useCourseLessonSlot(sinifAdi, lessonPin)
+  const liveAttendance = useClassAttendance(sinifAdi, nowSlot.date, nowSlot.time, bellSchedule)
   const [scores, setScores] = useState<Record<string, Score>>({})
   const [everyoneConfirm, setEveryoneConfirm] = useState(false)
   const [scoresLoading, setScoresLoading] = useState(false)
@@ -136,7 +190,7 @@ export default function CourseDetailPage() {
   const [reportExporting, setReportExporting] = useState(false)
 
   // App form
-  const [appForm, setAppForm] = useState({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd'), foto: '' as string | undefined })
+  const [appForm, setAppForm] = useState({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd'), saat: '', foto: '' as string | undefined, degerlendirmeDisi: false })
   const [appSaving, setAppSaving] = useState(false)
   const [newlyAddedAppId, setNewlyAddedAppId] = useState<string | null>(null)
   const [transferPrompt, setTransferPrompt] = useState<AttendanceSessionSummary | null>(null)
@@ -160,9 +214,8 @@ export default function CourseDetailPage() {
 
   // Sayfa başlığı değiştikçe rapor başlığını güncelle
   useEffect(() => {
-    const dersAdi = state?.courseName || "Ders";
-    setReportTitle(`Mehmet Akif Ersoy Ticaret MTAL - ${dersAdi} Performans Analizi`);
-  }, [state?.courseName]);
+    setReportTitle(`Mehmet Akif Ersoy Ticaret MTAL - ${dersAdi || 'Ders'} Performans Analizi`);
+  }, [dersAdi]);
 
   // Excel preview
   const [parsedStudents, setParsedStudents] = useState<ParsedStudent[]>([])
@@ -415,19 +468,25 @@ export default function CourseDetailPage() {
   const handleAppContextMenu = (e: React.MouseEvent, app: Application) => {
     e.preventDefault()
     setAppToEdit(app)
-    setAppForm({ ad: app.ad, tarih: app.tarih, foto: app.foto })
+    setAppForm({ ad: app.ad, tarih: app.tarih, saat: appClock(app), foto: app.foto, degerlendirmeDisi: !!app.degerlendirmeDisi })
     setEditAppOpen(true)
   }
 
   const handleEditApp = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!appToEdit) return
+    if (!appToEdit || appSaving) return
     setAppSaving(true)
-    await updateApplication(appToEdit.id, { ad: appForm.ad, tarih: appForm.tarih, foto: appForm.foto })
-    setEditAppOpen(false)
-    setAppToEdit(null)
-    setAppForm({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd'), foto: undefined })
-    setAppSaving(false)
+    try {
+      await updateApplication(appToEdit.id, { ad: appForm.ad, tarih: appForm.tarih, saat: appForm.saat, foto: appForm.foto, degerlendirmeDisi: appForm.degerlendirmeDisi })
+      setEditAppOpen(false)
+      setAppToEdit(null)
+      setAppForm({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd'), saat: '', foto: undefined, degerlendirmeDisi: false })
+    } catch (err) {
+      console.error(err)
+      toast({ title: 'Güncellenemedi', variant: 'destructive' })
+    } finally {
+      setAppSaving(false)
+    }
   }
 
   const handleDeleteApp = async () => {
@@ -444,15 +503,27 @@ export default function CourseDetailPage() {
 
   const lessonAttendanceMarks = () => {
     const marks: ClassAttendanceMarks = {}
-    for (const [no, mark] of Object.entries(lessonSlot.marks)) {
+    for (const [no, mark] of Object.entries(liveAttendance.marks)) {
       if (mark === 'D' || mark === 'G') marks[no] = mark
     }
     return marks
   }
 
+  const isSameLessonNow = (app: Application) => {
+    if (app.tarih !== nowSlot.date) return false
+    const nowClock = normalizeTime(nowSlot.time)
+    const appClockTime = normalizeTime(appClock(app) || '00:00')
+    const nowPeriod = bellSchedule ? findLessonPeriodForTime(bellSchedule, nowClock) : null
+    const appPeriod = bellSchedule ? findLessonPeriodForTime(bellSchedule, appClockTime) : null
+    if (nowPeriod != null) return appPeriod === nowPeriod
+    if (appPeriod != null) return false
+    return appClockTime === nowClock
+  }
+
   const requestAddApp = () => {
-    const sameDayApp = applications.some((app) => app.tarih === lessonSlot.date)
-    if (sameDayApp || Object.keys(lessonAttendanceMarks()).length > 0) {
+    const sameLessonApp = applications.some(isSameLessonNow)
+    const currentTaken = Object.keys(lessonAttendanceMarks()).length > 0 || liveAttendance.herkesGeldi
+    if (sameLessonApp || currentTaken) {
       pendingSameLesson.current = true
       pendingMarks.current = null
       pendingMerge.current = false
@@ -460,7 +531,7 @@ export default function CourseDetailPage() {
       return
     }
     const prev = sinifAdi
-      ? findEarlierLessonToday(attendanceSessions, sinifAdi, lessonSlot.date, lessonSlot.time, lessonSlot.lessonPeriod)
+      ? findEarlierLessonToday(attendanceSessions, sinifAdi, nowSlot.date, nowSlot.time, liveAttendance.lessonPeriod)
       : null
     if (prev) {
       setTransferPrompt(prev)
@@ -503,7 +574,8 @@ export default function CourseDetailPage() {
 
   const marksFromPreviousApp = async (tarih: string) => {
     const marks: ClassAttendanceMarks = {}
-    const prev = applications.find((app) => app.tarih === tarih)
+    const prev = applications.find((app) => app.tarih === tarih && isSameLessonNow(app))
+      ?? applications.find((app) => app.tarih === tarih)
     if (prev) {
       const list = await getScores(prev.id)
       for (const score of list) {
@@ -513,7 +585,9 @@ export default function CourseDetailPage() {
         else if (score.gec) marks[student.no] = 'G'
       }
     }
-    for (const [no, mark] of Object.entries(lessonAttendanceMarks())) marks[no] = mark
+    if (tarih === nowSlot.date) {
+      for (const [no, mark] of Object.entries(lessonAttendanceMarks())) marks[no] = mark
+    }
     return marks
   }
 
@@ -529,15 +603,15 @@ export default function CourseDetailPage() {
     pendingMerge.current = false
     pendingSameLesson.current = false
     const newId = await addApplication(ad, tarih)
-    if (newId && tarih === lessonSlot.date && (sameLesson || (merge && marks))) {
+    if (newId && tarih === nowSlot.date && (sameLesson || (merge && marks))) {
       try {
         const source = sameLesson ? await marksFromPreviousApp(tarih) : marks!
-        const next: ClassAttendanceMarks = { ...lessonSlot.marks }
+        const next: ClassAttendanceMarks = { ...liveAttendance.marks }
         for (const [no, mark] of Object.entries(source)) {
           if ((mark === 'D' || mark === 'G') && !next[no]) next[no] = mark
         }
-        if (Object.keys(next).length > Object.keys(lessonSlot.marks).length) {
-          await lessonSlot.replaceMarks(next)
+        if (Object.keys(next).length > Object.keys(liveAttendance.marks).length) {
+          await liveAttendance.replaceMarks(next)
         }
         await writeMarksToApp(newId, source)
       } catch {
@@ -546,7 +620,7 @@ export default function CourseDetailPage() {
     }
     if (newId) setNewlyAddedAppId(newId)
     setAddAppOpen(false)
-    setAppForm({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd'), foto: undefined })
+    setAppForm({ ad: '', tarih: format(new Date(), 'yyyy-MM-dd'), saat: '', foto: undefined, degerlendirmeDisi: false })
     setAppSaving(false)
   }
 
@@ -972,7 +1046,7 @@ export default function CourseDetailPage() {
   // Report export
   const buildReportTable = async (): Promise<ReportTableData> => {
     const apps = applications.filter(
-      (a) => a.tarih >= reportRange.from && a.tarih <= reportRange.to,
+      (a) => !a.degerlendirmeDisi && a.tarih >= reportRange.from && a.tarih <= reportRange.to,
     )
 
     const allScoresData: Record<string, Record<string, Score>> = {}
@@ -1086,8 +1160,7 @@ export default function CourseDetailPage() {
     const url = window.URL.createObjectURL(blob)
     const anchor = document.createElement('a')
     anchor.href = url
-    const dersAdi = state?.courseName || "Ders"
-    const fileName = `${dersAdi}_${format(new Date(reportRange.from), 'dd.MM.yyyy')}_${format(new Date(reportRange.to), 'dd.MM.yyyy')}_perf_analizi.xlsx`
+    const fileName = `${dersAdi || 'Ders'}_${format(new Date(reportRange.from), 'dd.MM.yyyy')}_${format(new Date(reportRange.to), 'dd.MM.yyyy')}_perf_analizi.xlsx`
     anchor.download = fileName
     anchor.click()
     window.URL.revokeObjectURL(url)
@@ -1254,22 +1327,38 @@ export default function CourseDetailPage() {
             ) : (
               <div className="relative min-h-11 w-full">
                 <div className="flex items-center gap-2 overflow-x-auto min-w-0 pr-11 [scrollbar-width:thin]">
-                  {applications.map((app) => (
+                  {applications.map((app) => {
+                    const excluded = !!app.degerlendirmeDisi
+                    const selected = selectedApp?.id === app.id
+                    return (
                     <button
                       key={app.id}
                       onClick={(e) => handleAppSelect(app, e)}
                       onContextMenu={(e) => handleAppContextMenu(e, app)}
-                      className={`shrink-0 text-left px-2.5 py-1.5 rounded-xl border text-sm transition-all duration-300 select-none overflow-hidden ${selectedApp?.id === app.id
-                        ? 'w-[116px] bg-blue-50 text-foreground border-primary shadow-md'
-                        : 'w-[96px] bg-background border-border hover:border-primary/50'
-                        }`}
+                      className={cn(
+                        'relative shrink-0 text-left px-2.5 py-1.5 rounded-xl border text-sm transition-all duration-300 select-none',
+                        excluded && 'pr-5',
+                        excluded && selected && 'w-[132px] bg-blue-50 text-foreground border-primary shadow-md',
+                        excluded && !selected && 'w-[118px] bg-gray-100 text-gray-400 border-gray-200',
+                        !excluded && selected && 'w-[132px] bg-blue-50 text-foreground border-primary shadow-md',
+                        !excluded && !selected && 'w-[118px] bg-background border-border hover:border-primary/50',
+                      )}
                     >
+                      {excluded && (
+                        <span className="absolute top-1 right-1 flex h-3.5 w-3.5 items-center justify-center rounded-full bg-gray-400 text-white">
+                          <Minus className="h-2.5 w-2.5" strokeWidth={3} />
+                        </span>
+                      )}
                       <div className="font-medium truncate">{app.ad}</div>
-                      <div className="text-[11px] mt-0.5 truncate text-muted-foreground">
-                        {format(new Date(app.tarih + 'T12:00:00'), 'd MMM yyyy', { locale: tr })}
+                      <div className={cn('text-[11px] mt-0.5 truncate', excluded && !selected ? 'text-gray-400' : 'text-muted-foreground')}>
+                        {format(new Date(app.tarih + 'T12:00:00'), 'd MMM yyyy EEE', { locale: tr })}
+                      </div>
+                      <div className={cn('text-[10px] leading-tight truncate', excluded && !selected ? 'text-gray-400' : 'text-muted-foreground')}>
+                        {appWhenLabel(appClock(app), bellSchedule)}
                       </div>
                     </button>
-                  ))}
+                    )
+                  })}
                 </div>
                 <button
                   onClick={requestAddApp}
@@ -1522,6 +1611,26 @@ export default function CourseDetailPage() {
                     className="block w-full appearance-none"
                     onChange={(e) => setAppForm({ ...appForm, tarih: e.target.value })} required />
                 </div>
+                <div className="space-y-2">
+                  <Label htmlFor="editAppSaat">Saat</Label>
+                  <TimeInput24
+                    id="editAppSaat"
+                    value={appForm.saat || '00:00'}
+                    onChange={(saat) => setAppForm({ ...appForm, saat })}
+                  />
+                </div>
+                <label className="flex items-center justify-between gap-3 cursor-pointer">
+                  <span className="text-sm leading-tight">Değerlendirme dışı tut</span>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={appForm.degerlendirmeDisi}
+                    onClick={() => setAppForm({ ...appForm, degerlendirmeDisi: !appForm.degerlendirmeDisi })}
+                    className={`relative h-6 w-11 shrink-0 rounded-full transition-colors ${appForm.degerlendirmeDisi ? 'bg-primary' : 'bg-input'}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-background shadow transition-transform ${appForm.degerlendirmeDisi ? 'translate-x-5' : ''}`} />
+                  </button>
+                </label>
               </div>
             </div>
             <DialogFooter className="flex-col sm:flex-row gap-2 pt-2">
@@ -1766,7 +1875,7 @@ export default function CourseDetailPage() {
               </div>
             </div>
             <p className="text-sm text-muted-foreground">
-              {applications.filter(a => a.tarih >= reportRange.from && a.tarih <= reportRange.to).length} uygulama raporlanacak.
+              {applications.filter(a => !a.degerlendirmeDisi && a.tarih >= reportRange.from && a.tarih <= reportRange.to).length} uygulama raporlanacak.
             </p>
           </div>
           <DialogFooter className="flex-col sm:flex-col gap-2">
@@ -1969,8 +2078,8 @@ export default function CourseDetailPage() {
               onClick={() => {
                 setCourseMenuOpen(false)
                 navigate(`/courses/${id}/seating`, {
-                  state: selectedApp
-                    ? { applicationId: selectedApp.id, applicationAd: selectedApp.ad }
+                  state: activeApp
+                    ? { applicationId: activeApp.id, applicationAd: activeApp.ad, tarih: activeApp.tarih, saat: appClock(activeApp) }
                     : undefined,
                 })
               }}

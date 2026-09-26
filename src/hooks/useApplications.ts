@@ -65,8 +65,14 @@ export function useApplications(courseId: string) {
     return docRef.id
   }
 
-  const updateApplication = async (appId: string, data: { ad?: string; tarih?: string; foto?: string }) => {
-    updateDoc(doc(db, 'courses', courseId, 'applications', appId), data).catch(console.error)
+  const updateApplication = async (appId: string, data: { ad?: string; tarih?: string; saat?: string; foto?: string; degerlendirmeDisi?: boolean }) => {
+    const payload: { ad?: string; tarih?: string; saat?: string; foto?: string; degerlendirmeDisi?: boolean } = {}
+    if (data.ad !== undefined) payload.ad = data.ad
+    if (data.tarih !== undefined) payload.tarih = data.tarih
+    if (data.saat !== undefined) payload.saat = data.saat
+    if (data.foto !== undefined) payload.foto = data.foto
+    if (data.degerlendirmeDisi !== undefined) payload.degerlendirmeDisi = data.degerlendirmeDisi
+    await updateDoc(doc(db, 'courses', courseId, 'applications', appId), payload)
   }
 
   const deleteApplication = async (appId: string) => {

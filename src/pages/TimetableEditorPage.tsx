@@ -8,7 +8,7 @@ import {
   type SetStateAction,
 } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Check, ClipboardPaste, Copy, Loader2, Pencil, Trash2 } from 'lucide-react'
+import { Check, ClipboardPaste, Copy, Hourglass, Loader2, Pencil, Trash2 } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -125,7 +125,12 @@ type FillSession = FillDrag & {
   startX: number
   startY: number
   cancelled: boolean
+  armed: boolean
+  needsHold: boolean
+  holdTimer: number | null
 }
+
+const HOLD_TO_DRAG_MS = 380
 
 function formSnapshot(form: FormState) {
   const cells: Record<string, string> = {}
@@ -372,6 +377,28 @@ export default function TimetableEditorPage() {
     const time = `${pad(nowTick.getHours())}:${pad(nowTick.getMinutes())}`
     return findLessonPeriodForTime(form, time)
   }, [nowTick, form, activeDayIndex])
+
+  const waitingLesson = useMemo(() => {
+    if (activeDayIndex != null && activeLessonPeriod != null) {
+      const current = form.cells[cellKey(activeDayIndex, activeLessonPeriod)] ?? ''
+      if (current.trim()) return null
+    }
+    const nowMins = nowTick.getHours() * 60 + nowTick.getMinutes()
+    const lessons = slots.filter((slot) => slot.kind === 'lesson')
+    const startDay = activeDayIndex ?? 0
+    for (let offset = 0; offset < 5; offset++) {
+      const day = (startDay + offset) % 5
+      for (const slot of lessons) {
+        if (day === activeDayIndex) {
+          const [h, m] = slot.start.split(':').map(Number)
+          if (h * 60 + m <= nowMins) continue
+        }
+        const text = form.cells[cellKey(day, slot.period)] ?? ''
+        if (text.trim()) return { day, period: slot.period }
+      }
+    }
+    return null
+  }, [activeDayIndex, activeLessonPeriod, form.cells, nowTick, slots])
   const lessonNames = useMemo(() => {
     const names = new Set<string>()
     for (const course of courses) {
@@ -563,6 +590,7 @@ export default function TimetableEditorPage() {
     stopDragListeners.current?.()
     const origin = event.currentTarget
 
+    const needsHold = event.pointerType === 'touch'
     const session: FillSession = {
       pointerId: event.pointerId,
       sourceDay: day,
@@ -573,18 +601,41 @@ export default function TimetableEditorPage() {
       targetDay: day,
       targetPeriod: period,
       cancelled: false,
+      armed: !needsHold,
+      needsHold,
+      holdTimer: null,
     }
     dragRef.current = session
+    if (needsHold) {
+      session.holdTimer = window.setTimeout(() => {
+        if (dragRef.current !== session || session.cancelled) return
+        session.armed = true
+        draggedRef.current = true
+        try {
+          origin.setPointerCapture(session.pointerId)
+        } catch {
+          /* kaydırma bitene kadar yakalama gerekmez */
+        }
+      }, HOLD_TO_DRAG_MS)
+    }
 
     const move = (ev: PointerEvent) => {
       if (ev.pointerId !== session.pointerId || session.cancelled) return
       const dx = ev.clientX - session.startX
       const dy = ev.clientY - session.startY
+      if (!session.armed) {
+        if (Math.hypot(dx, dy) >= 10) {
+          if (session.holdTimer != null) window.clearTimeout(session.holdTimer)
+          session.cancelled = true
+        }
+        return
+      }
       if (!session.axis) {
         if (Math.hypot(dx, dy) < 10) return
         session.axis = Math.abs(dx) >= Math.abs(dy) ? 'h' : 'v'
         dragToken.current += 1
         draggedRef.current = true
+        setCellMenu(null)
         try {
           origin.setPointerCapture(ev.pointerId)
         } catch {
@@ -621,6 +672,7 @@ export default function TimetableEditorPage() {
 
     const end = (ev: PointerEvent) => {
       if (ev.pointerId !== session.pointerId) return
+      if (session.holdTimer != null) window.clearTimeout(session.holdTimer)
       window.removeEventListener('pointermove', move)
       window.removeEventListener('pointerup', end)
       window.removeEventListener('pointercancel', end)
@@ -635,7 +687,12 @@ export default function TimetableEditorPage() {
           if (dragToken.current === token) draggedRef.current = false
         }, 300)
       }
-      if (ev.type === 'pointercancel' || !current || current.cancelled || !current.axis) return
+      if (ev.type === 'pointercancel' || !current || current.cancelled || !current.axis) {
+        if (current?.needsHold && current.armed && !current.axis && !current.cancelled && ev.type !== 'pointercancel') {
+          openCell(current.sourceDay, current.sourcePeriod)
+        }
+        return
+      }
       const base = formRef.current
       const cells = fillEmptyCells(
         base.cells,
@@ -778,6 +835,10 @@ export default function TimetableEditorPage() {
                         activeDayIndex === dayIndex &&
                         activeLessonPeriod === slot.period &&
                         Boolean(text.trim())
+                      const isWaitingLesson =
+                        !isNowLesson &&
+                        waitingLesson?.day === dayIndex &&
+                        waitingLesson.period === slot.period
                       return (
                         <td
                           key={day}
@@ -792,28 +853,29 @@ export default function TimetableEditorPage() {
                         >
                           <button
                             type="button"
-                            title={
-                              isNowLesson
-                                ? 'Derse git'
-                                : text
-                                  ? 'Sürükleyerek yay'
-                                  : undefined
-                            }
+                            title={isWaitingLesson ? 'Sıradaki ders' : text ? 'Derse git' : undefined}
                             className={cn(
-                              'w-full min-h-10 rounded px-0.5 py-1 text-left text-[11px] leading-tight break-words hover:bg-muted sm:px-1.5',
-                              text ? 'cursor-grab font-medium touch-none' : 'text-muted-foreground',
-                              isNowLesson && 'timetable-now-slot ring-1 ring-primary/40 cursor-pointer',
+                              'relative w-full min-h-10 rounded px-0.5 py-1 text-left text-[11px] leading-tight break-words hover:bg-muted sm:px-1.5',
+                              text ? 'cursor-pointer font-medium' : 'text-muted-foreground',
+                              isNowLesson && 'timetable-now-slot ring-1 ring-primary/40',
+                              isWaitingLesson && 'timetable-now-slot ring-1 ring-amber-500/70',
                               willFill && !text && 'font-medium text-primary',
                             )}
                             onPointerDown={(event) => onFillPointerDown(event, dayIndex, slot.period)}
-                            onContextMenu={(event) => openCellMenu(event, dayIndex, slot.period)}
+                            onContextMenu={(event) => {
+                              if (dragRef.current?.needsHold) {
+                                event.preventDefault()
+                                return
+                              }
+                              openCellMenu(event, dayIndex, slot.period)
+                            }}
                             onClick={() => {
                               if (draggedRef.current || menuOpenedRef.current) {
                                 draggedRef.current = false
                                 menuOpenedRef.current = false
                                 return
                               }
-                              if (isNowLesson && text.trim()) {
+                              if (text.trim()) {
                                 const course = findCourseForCell(text, courses)
                                 if (course) {
                                   const path = course.openSeatingByDefault
@@ -834,6 +896,9 @@ export default function TimetableEditorPage() {
                               openCell(dayIndex, slot.period)
                             }}
                           >
+                            {isWaitingLesson && (
+                              <Hourglass className="mx-auto mb-0.5 h-3.5 w-3.5 text-amber-600" aria-label="Bekleniyor" />
+                            )}
                             {text || (willFill ? fillPreview?.text : '') || '—'}
                           </button>
                         </td>
@@ -973,6 +1038,20 @@ export default function TimetableEditorPage() {
             style={{ left: cellMenu.x, top: cellMenu.y }}
             onContextMenu={(event) => event.preventDefault()}
           >
+            {form.cells[cellKey(cellMenu.day, cellMenu.period)] && (
+              <button
+                type="button"
+                className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm hover:bg-muted"
+                onClick={() => {
+                  const { day, period } = cellMenu
+                  setCellMenu(null)
+                  openCell(day, period)
+                }}
+              >
+                <Pencil className="h-4 w-4 shrink-0" />
+                Düzenle
+              </button>
+            )}
             {form.cells[cellKey(cellMenu.day, cellMenu.period)] && (
               <button
                 type="button"

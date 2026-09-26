@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { normalizeTime, useClassAttendance } from '@/hooks/useClassAttendance'
 import { useBellSchedule } from '@/hooks/useTimetables'
@@ -32,19 +32,31 @@ export function attendanceScoreFields(current: AttendanceMark | undefined, mark:
   return { devamsiz: false, gec: true }
 }
 
-export function useCourseLessonSlot(sinifAdi: string) {
+export function useCourseLessonSlot(sinifAdi: string, pinned?: { date: string; time: string } | null) {
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const now = useMemo(() => nowLocal(), [])
-  const date = searchParams.get('tarih') || now.date
-  const time = normalizeTime(searchParams.get('saat') || now.time)
+  const [nudge, setNudge] = useState<{ date: string; time: string } | null>(null)
+  const pinKey = pinned ? `${pinned.date}|${pinned.time}` : ''
+  useEffect(() => {
+    setNudge(null)
+  }, [pinKey])
+
+  const date = nudge?.date || pinned?.date || searchParams.get('tarih') || now.date
+  const time = normalizeTime(nudge?.time || pinned?.time || searchParams.get('saat') || now.time)
   const { schedule } = useBellSchedule()
   const { marks, notes, herkesGeldi, setMark, setNote, markEveryonePresent, replaceMarks, lessonPeriod, loading } = useClassAttendance(sinifAdi, date, time, schedule)
 
   const patch = (partial: { tarih?: string; saat?: string }) => {
+    const nextDate = partial.tarih || date
+    const nextTime = normalizeTime(partial.saat || time)
+    if (pinned) {
+      setNudge({ date: nextDate, time: nextTime })
+      return
+    }
     const next = new URLSearchParams(searchParams)
-    next.set('tarih', partial.tarih || date)
-    next.set('saat', normalizeTime(partial.saat || time))
+    next.set('tarih', nextDate)
+    next.set('saat', nextTime)
     setSearchParams(next, { replace: true, state: location.state })
   }
 

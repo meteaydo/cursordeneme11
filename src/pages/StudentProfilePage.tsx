@@ -221,8 +221,9 @@ export default function StudentProfilePage() {
   useEffect(() => {
     if (!applications.length) return
     setChartLoading(true)
-    Promise.all(applications.map((a) => getScores(a.id))).then((allScores) => {
-      const data = applications.map((a, i) => {
+    const graded = applications.filter((a) => !a.degerlendirmeDisi)
+    Promise.all(graded.map((a) => getScores(a.id))).then((allScores) => {
+      const data = graded.map((a, i) => {
         const sc = allScores[i].find((s) => s.studentId === sId)
         return {
           name: format(new Date(a.tarih + 'T12:00:00'), 'd MMM', { locale: tr }),

@@ -19,10 +19,10 @@ export function attendanceSessionKey(sinifAdi: string, date: string, time: strin
   return `${sinifAdi}_${date}_${normalizeTime(time).replace(':', '')}`
 }
 
-/** Bir ders saati = bir yoklama. Anahtar dakikaya bağlı değildir. */
-export function lessonAttendanceKey(sinifAdi: string, date: string, period: number | null) {
+/** Aynı ders saati ortak yoklamadır. Ders saati dışındaki her saat ayrıdır. */
+export function lessonAttendanceKey(sinifAdi: string, date: string, period: number | null, time?: string) {
   const ad = formatClassName(sinifAdi)
-  if (period == null) return `${ad}_${date}_dersdisi`
+  if (period == null) return `${ad}_${date}_${normalizeTime(time || '00:00').replace(':', '')}`
   return `${ad}_${date}_ders${period}`
 }
 
@@ -275,7 +275,7 @@ export function findEarlierLessonToday(
     (s) =>
       formatClassName(s.sinifAdi) === ad &&
       s.date === date &&
-      s.dCount + s.gCount > 0 &&
+      (s.dCount + s.gCount > 0 || s.herkesGeldi) &&
       (lessonPeriod == null || s.lessonPeriod !== lessonPeriod) &&
       `${s.date}T${normalizeTime(s.time)}` < currentWhen,
   )
@@ -359,8 +359,9 @@ export function useClassAttendance(
 
     let cancelled = false
     setLoading(true)
-    const period = bellSchedule ? findLessonPeriodForTime(bellSchedule, normalizeTime(time)) : null
-    const canonicalKey = lessonAttendanceKey(sinifAdi, date, period)
+    const clock = normalizeTime(time)
+    const period = bellSchedule ? findLessonPeriodForTime(bellSchedule, clock) : null
+    const canonicalKey = lessonAttendanceKey(sinifAdi, date, period, clock)
     herkesGeldiRef.current = false
     setHerkesGeldi(false)
     getDoc(doc(db, 'users', user.uid))
@@ -376,7 +377,9 @@ export function useClassAttendance(
           const valuePeriod =
             value.lessonPeriod ??
             (value.time && bellSchedule ? findLessonPeriodForTime(bellSchedule, value.time) : null)
-          return valuePeriod === period
+          if (period != null) return valuePeriod === period
+          if (valuePeriod != null) return false
+          return normalizeTime(value.time || '') === clock
         })
         related.sort((a, b) => `${a[1].time || ''}` < `${b[1].time || ''}` ? -1 : 1)
         const marks: ClassAttendanceMarks = {}
@@ -427,7 +430,7 @@ export function useClassAttendance(
       const period = bellSchedule
         ? findLessonPeriodForTime(bellSchedule, normalizeTime(time))
         : null
-      const sessionKey = lessonAttendanceKey(sinifAdi, date, period)
+      const sessionKey = lessonAttendanceKey(sinifAdi, date, period, time)
       sessionKeyRef.current = sessionKey
       if (period != null) setStoredLessonPeriod(period)
       const slot = period != null && bellSchedule
@@ -467,7 +470,7 @@ export function useClassAttendance(
       const period = bellSchedule
         ? findLessonPeriodForTime(bellSchedule, normalizeTime(time))
         : null
-      const sessionKey = lessonAttendanceKey(sinifAdi, date, period)
+      const sessionKey = lessonAttendanceKey(sinifAdi, date, period, time)
       sessionKeyRef.current = sessionKey
       if (period != null) setStoredLessonPeriod(period)
       const slot = period != null && bellSchedule
@@ -510,7 +513,7 @@ export function useClassAttendance(
       setNotes(next)
 
       const period = bellSchedule ? findLessonPeriodForTime(bellSchedule, normalizeTime(time)) : null
-      const sessionKey = lessonAttendanceKey(sinifAdi, date, period)
+      const sessionKey = lessonAttendanceKey(sinifAdi, date, period, time)
       const slot = period != null && bellSchedule
         ? buildDaySlots(bellSchedule).find((item) => item.kind === 'lesson' && item.period === period)
         : undefined
@@ -541,7 +544,7 @@ export function useClassAttendance(
     herkesGeldiRef.current = true
     setHerkesGeldi(true)
     const period = bellSchedule ? findLessonPeriodForTime(bellSchedule, normalizeTime(time)) : null
-    const sessionKey = lessonAttendanceKey(sinifAdi, date, period)
+    const sessionKey = lessonAttendanceKey(sinifAdi, date, period, time)
     const slot = period != null && bellSchedule
       ? buildDaySlots(bellSchedule).find((item) => item.kind === 'lesson' && item.period === period)
       : undefined
@@ -564,4 +567,110 @@ export function useClassAttendance(
   }, [user, sinifAdi, date, time, bellSchedule])
 
   return { marks, notes, herkesGeldi, loading, setMark, setNote, markEveryonePresent, replaceMarks, lessonPeriod }
+}
+
+function recordHasAttendance(value: { marks?: ClassAttendanceMarks; herkesGeldi?: boolean }) {
+  if (value.herkesGeldi) return true
+  return Object.values(value.marks ?? {}).some((mark) => mark === 'D' || mark === 'G')
+}
+
+function recordMatchesLesson(
+  key: string,
+  value: { sinifAdi?: string; date?: string; time?: string; lessonPeriod?: number },
+  sinifAdi: string,
+  date: string,
+  clock: string,
+  period: number | null,
+  canonicalKey: string,
+  bellSchedule?: BellSchedule | null,
+) {
+  if (key === canonicalKey) return true
+  if (formatClassName(value.sinifAdi || '') !== formatClassName(sinifAdi) || value.date !== date) return false
+  const valuePeriod =
+    value.lessonPeriod ??
+    (value.time && bellSchedule ? findLessonPeriodForTime(bellSchedule, value.time) : null)
+  if (period != null) return valuePeriod === period
+  if (valuePeriod != null) return false
+  return normalizeTime(value.time || '') === clock
+}
+
+/** Bu derste D/G kaydı varsa dokunmaz. Yoksa gelen işaretleri, o da yoksa "herkes geldi" yazar. */
+export async function saveLessonIfUnrecorded(
+  uid: string,
+  sinifAdi: string,
+  date: string,
+  time: string,
+  marks: ClassAttendanceMarks,
+  bellSchedule?: BellSchedule | null,
+) {
+  const clock = normalizeTime(time)
+  const period = bellSchedule ? findLessonPeriodForTime(bellSchedule, clock) : null
+  const canonicalKey = lessonAttendanceKey(sinifAdi, date, period, clock)
+  const userRef = doc(db, 'users', uid)
+  const snap = await getDoc(userRef)
+  const all = (snap.data()?.classAttendances ?? {}) as Record<
+    string,
+    { sinifAdi?: string; date?: string; time?: string; lessonPeriod?: number; marks?: ClassAttendanceMarks; herkesGeldi?: boolean }
+  >
+  const matching = Object.entries(all).filter(([key, value]) =>
+    recordMatchesLesson(key, value, sinifAdi, date, clock, period, canonicalKey, bellSchedule),
+  )
+  if (matching.some(([, value]) => recordHasAttendance(value) && !value.herkesGeldi)) return false
+  if (matching.some(([, value]) => Object.values(value.marks ?? {}).some((mark) => mark === 'D' || mark === 'G'))) return false
+  const hasMarks = Object.values(marks).some((mark) => mark === 'D' || mark === 'G')
+  if (!hasMarks && matching.some(([, value]) => value.herkesGeldi)) return false
+  const slot = period != null && bellSchedule
+    ? buildDaySlots(bellSchedule).find((item) => item.kind === 'lesson' && item.period === period)
+    : undefined
+  const payload: Record<string, unknown> = {
+    sinifAdi: formatClassName(sinifAdi),
+    date,
+    time: slot?.start ?? clock,
+    marks: hasMarks ? marks : {},
+    herkesGeldi: !hasMarks,
+    updatedAt: serverTimestamp(),
+  }
+  if (period != null) payload.lessonPeriod = period
+  try {
+    await updateDoc(userRef, { [`classAttendances.${canonicalKey}`]: payload as unknown as FieldValue })
+  } catch {
+    await setDoc(userRef, { classAttendances: { [canonicalKey]: payload } }, { merge: true })
+  }
+  return true
+}
+
+export function useRecordPresentLessons(
+  sinifAdi: string,
+  stamps: { date: string; time: string; marks: ClassAttendanceMarks }[],
+  bellSchedule: BellSchedule | null | undefined,
+  ready: boolean,
+) {
+  const { user } = useAuth()
+  const done = useRef(new Set<string>())
+  const stampKey = stamps
+    .map((stamp) => `${stamp.date}|${stamp.time}|${Object.entries(stamp.marks).sort().join(',')}`)
+    .join(';')
+
+  useEffect(() => {
+    if (!user || !sinifAdi || !bellSchedule || !ready || !stamps.length) return
+    let cancelled = false
+    void (async () => {
+      for (const stamp of stamps) {
+        if (cancelled) return
+        const clock = normalizeTime(stamp.time)
+        const period = findLessonPeriodForTime(bellSchedule, clock)
+        const key = `${lessonAttendanceKey(sinifAdi, stamp.date, period, clock)}|${Object.keys(stamp.marks).sort().join(',')}`
+        if (done.current.has(key)) continue
+        try {
+          await saveLessonIfUnrecorded(user.uid, sinifAdi, stamp.date, stamp.time, stamp.marks, bellSchedule)
+          done.current.add(key)
+        } catch (error) {
+          console.error('Yoklama kaydı yazılamadı:', error)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [user, sinifAdi, bellSchedule, ready, stampKey, stamps])
 }

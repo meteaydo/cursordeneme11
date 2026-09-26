@@ -99,6 +99,10 @@ export interface Application {
   courseId: string
   ad: string
   tarih: string
+  /** Uygulamanın ders saati, HH:mm. Yoksa createdAt kullanılır. */
+  saat?: string
+  /** Performans analizi ve ortalamaya dahil edilmez. */
+  degerlendirmeDisi?: boolean
   foto?: string
   createdAt: Date
 }
