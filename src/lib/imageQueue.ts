@@ -3,6 +3,7 @@ import imageCompression from 'browser-image-compression'
 import { uploadToR2 } from './r2'
 import { db } from './firebase'
 import { doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore'
+import { propagateStudentFoto } from '@/services/classRosterService'
 
 interface QueueItem {
   id: string
@@ -61,6 +62,14 @@ export async function processQueue() {
           await updateDoc(docRef, {
             [item.firebaseDocInfo.field]: r2Url
           })
+          const courseMatch = item.firebaseDocInfo.collection.match(/^courses\/([^/]+)\/students$/)
+          if (courseMatch && item.firebaseDocInfo.field === 'foto') {
+            try {
+              await propagateStudentFoto(courseMatch[1], item.firebaseDocInfo.docId, r2Url)
+            } catch (err) {
+              console.error('Ortak liste fotoğrafı yayılmadı:', err)
+            }
+          }
         }
 
         // Remove from queue

@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { EmailAuthProvider, reauthenticateWithCredential, updatePassword } from 'firebase/auth'
-import { Loader2 } from 'lucide-react'
+import { Loader2, LogOut } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -22,7 +23,8 @@ function passwordErrorMessage(err: unknown): string {
 }
 
 export default function ProfilePage() {
-  const { user } = useAuth()
+  const navigate = useNavigate()
+  const { user, logout } = useAuth()
   const canChangePassword = useMemo(
     () => user?.providerData.some((p) => p.providerId === 'password') ?? false,
     [user],
@@ -134,6 +136,19 @@ export default function ProfilePage() {
           Google ile giriş yaptığınız için parola buradan değiştirilemez.
         </p>
       )}
+
+      <Button
+        type="button"
+        variant="outline"
+        className="mt-6 w-full text-destructive border-destructive/30 hover:bg-destructive/10 hover:text-destructive"
+        onClick={async () => {
+          await logout()
+          navigate('/login', { replace: true })
+        }}
+      >
+        <LogOut className="mr-2 h-4 w-4" />
+        Çıkış yap
+      </Button>
     </Layout>
   )
 }

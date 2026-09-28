@@ -17,6 +17,7 @@ import {
 import { normalizeTime, useAttendanceHistory, type AttendanceSessionSummary } from '@/hooks/useClassAttendance'
 import { useClassRoster, type ClassRosterRow } from '@/hooks/useClassRoster'
 import { OfflineImage } from '@/components/ui/OfflineImage'
+import { useCourses } from '@/hooks/useCourses'
 import { pickTimetableId, useBellSchedule, useTimetables } from '@/hooks/useTimetables'
 import { cellKey } from '@/lib/timetable'
 import { toast } from '@/hooks/use-toast'
@@ -108,6 +109,8 @@ export default function AttendanceHistoryPage() {
   const sinifAdi = formatClassName(decodeURIComponent(raw))
   const courseId = searchParams.get('ders') || ''
   const coursePath = courseId ? `/courses/${courseId}` : '/courses'
+  const { courses, loading: coursesLoading } = useCourses()
+  const course = courses.find((item) => item.id === courseId)
   const { schedule: bellSchedule } = useBellSchedule()
   const { items: timetables } = useTimetables()
   const timetableCells = useMemo(() => {
@@ -163,10 +166,17 @@ export default function AttendanceHistoryPage() {
     }
   }
 
-  const classSessions = useMemo(
-    () => sessions.filter((s) => formatClassName(s.sinifAdi) === sinifAdi),
-    [sessions, sinifAdi],
-  )
+  const classSessions = useMemo(() => {
+    const ofClass = sessions.filter((s) => formatClassName(s.sinifAdi) === sinifAdi)
+    if (!courseId) return ofClass
+    const dersAdi = (course?.dersAdi ?? '').trim()
+    if (!dersAdi) return []
+    return ofClass.filter((s) => {
+      if (s.courseId) return s.courseId === courseId
+      const name = timetableLessonName(timetableCells, s.date, s.lessonPeriod ?? null, sinifAdi)
+      return name.localeCompare(dersAdi, 'tr', { sensitivity: 'base' }) === 0
+    })
+  }, [sessions, sinifAdi, courseId, course?.dersAdi, timetableCells])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -228,7 +238,7 @@ export default function AttendanceHistoryPage() {
           />
         </div>
 
-        {loading ? (
+        {loading || (Boolean(courseId) && coursesLoading) ? (
           <div className="flex justify-center py-12">
             <Loader2 className="h-8 w-8 animate-spin text-primary" />
           </div>
@@ -236,7 +246,11 @@ export default function AttendanceHistoryPage() {
           <div className="text-center py-16 space-y-3">
             <ClipboardList className="h-12 w-12 text-muted-foreground mx-auto opacity-50" />
             <p className="text-muted-foreground">
-              {search ? 'Arama sonucu bulunamadı.' : 'Bu sınıfa ait yoklama kaydı yok.'}
+              {search
+                ? 'Arama sonucu bulunamadı.'
+                : courseId
+                  ? 'Bu derse ait yoklama kaydı yok.'
+                  : 'Bu sınıfa ait yoklama kaydı yok.'}
             </p>
           </div>
         ) : (

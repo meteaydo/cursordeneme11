@@ -58,7 +58,7 @@ export function useCourses() {
       createdAt: serverTimestamp(),
     }
     if (data.classId) payload.classId = data.classId
-    setDoc(docRef, payload).catch(console.error)
+    await setDoc(docRef, payload)
     return docRef.id
   }
 

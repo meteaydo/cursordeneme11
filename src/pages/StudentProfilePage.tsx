@@ -1084,7 +1084,7 @@ export default function StudentProfilePage() {
           <DialogHeader>
             <DialogTitle>Öğrenciyi Sil</DialogTitle>
             <DialogDescription>
-              <strong>{student.adSoyad}</strong> isimli öğrenciyi silmek istediğinize emin misiniz? Bu işlem geri alınamaz ve öğrenciye ait tüm puanlar silinecektir.
+              <strong>{student.adSoyad}</strong> bu sınıfın tüm derslerinden silinecek. Bu işlem geri alınamaz.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter className="flex-row gap-2 sm:gap-0">

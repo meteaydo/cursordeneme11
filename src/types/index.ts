@@ -55,6 +55,8 @@ export interface BehaviorLog {
 export interface Student {
   id: string
   courseId: string
+  /** Ortak sınıf listesindeki kimlik */
+  rosterMemberId?: string
   foto?: string
   no: string
   adSoyad: string

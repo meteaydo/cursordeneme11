@@ -117,13 +117,20 @@ export default function CoursesPage() {
     setError('')
     setSaving(true)
     try {
-      const courseId = await addCourse(form) 
+      const courseId = await addCourse(form)
       setOpen(false)
-      
-      // Eğen hazır bir sınıf seçildiyse doğrudan ders detayına git (öğrenciler otomatik yüklenecek)
-      if (courseId && !isManualClass && classList.includes(form.sinifAdi)) {
-        navigate(`/courses/${courseId}`, { 
-          state: { courseName: form.dersAdi, className: form.sinifAdi, fromTemplate: true } 
+
+      const sinif = formatClassName(form.sinifAdi)
+      const hasSharedList = courses.some(
+        (c) => formatClassName(c.sinifAdi) === sinif && (stats[c.id]?.studentCount || 0) > 0,
+      )
+      if (courseId && hasSharedList) {
+        navigate(`/courses/${courseId}`, {
+          state: { courseName: form.dersAdi, className: form.sinifAdi, sharedRoster: true },
+        })
+      } else if (courseId && !isManualClass && classList.includes(form.sinifAdi)) {
+        navigate(`/courses/${courseId}`, {
+          state: { courseName: form.dersAdi, className: form.sinifAdi, fromTemplate: true },
         })
       }
       setForm(EMPTY_FORM)

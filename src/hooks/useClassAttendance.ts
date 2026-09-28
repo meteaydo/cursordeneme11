@@ -36,6 +36,8 @@ export type AttendanceSessionSummary = {
   dCount: number
   gCount: number
   herkesGeldi?: boolean
+  /** Yoklamanın alındığı ders. Eski kayıtlarda boş olabilir. */
+  courseId?: string
   /** Aynı ders saatine ait eski dakika kayıtları dahil */
   sourceKeys: string[]
 }
@@ -53,7 +55,7 @@ function collapseLessonSessions(list: AttendanceSessionSummary[]): AttendanceSes
   for (const session of list) {
     const id =
       session.lessonPeriod != null
-        ? `${formatClassName(session.sinifAdi)}|${session.date}|${session.lessonPeriod}`
+        ? `${formatClassName(session.sinifAdi)}|${session.date}|${session.lessonPeriod}|${session.courseId || ''}`
         : session.key
     const prev = groups.get(id)
     if (!prev) {
@@ -77,6 +79,7 @@ function collapseLessonSessions(list: AttendanceSessionSummary[]): AttendanceSes
       marks,
       ...counts,
       herkesGeldi: !!(prev.herkesGeldi || session.herkesGeldi),
+      courseId: (newer ? session.courseId : prev.courseId) || prev.courseId || session.courseId,
       sourceKeys: [...new Set([...prev.sourceKeys, ...session.sourceKeys])],
     })
   }
@@ -124,6 +127,7 @@ export function useAttendanceHistory(bellSchedule?: BellSchedule | null) {
                 lessonPeriod?: number
                 marks?: ClassAttendanceMarks
                 herkesGeldi?: boolean
+                courseId?: string
               }
             >
           | undefined
@@ -137,6 +141,7 @@ export function useAttendanceHistory(bellSchedule?: BellSchedule | null) {
               date: v.date || '',
               time: v.time || '',
               lessonPeriod,
+              courseId: v.courseId,
               marks,
               dCount: Object.values(marks).filter((m) => m === 'D').length,
               gCount: Object.values(marks).filter((m) => m === 'G').length,
@@ -334,6 +339,7 @@ export function useClassAttendance(
   date: string,
   time: string,
   bellSchedule?: BellSchedule | null,
+  courseId?: string,
 ) {
   const { user } = useAuth()
   const [marks, setMarks] = useState<ClassAttendanceMarks>({})
@@ -346,6 +352,7 @@ export function useClassAttendance(
   const [herkesGeldi, setHerkesGeldi] = useState(false)
   const sessionKeyRef = useRef('')
   const duplicateKeysRef = useRef<string[]>([])
+  const courseOwnerRef = useRef('')
   const lessonPeriod = lessonPeriodForTime(time, bellSchedule, storedLessonPeriod, 'live')
 
   useEffect(() => {
@@ -369,7 +376,7 @@ export function useClassAttendance(
         if (cancelled) return
         const all = (snap.data()?.classAttendances ?? {}) as Record<
           string,
-          { sinifAdi?: string; date?: string; time?: string; lessonPeriod?: number; marks?: ClassAttendanceMarks; notes?: Record<string, string>; herkesGeldi?: boolean }
+          { sinifAdi?: string; date?: string; time?: string; lessonPeriod?: number; marks?: ClassAttendanceMarks; notes?: Record<string, string>; herkesGeldi?: boolean; courseId?: string }
         >
         const related = Object.entries(all).filter(([key, value]) => {
           if (key === canonicalKey) return true
@@ -385,11 +392,23 @@ export function useClassAttendance(
         const marks: ClassAttendanceMarks = {}
         const mergedNotes: Record<string, string> = {}
         let savedEveryone = false
+        let owner = ''
         for (const [, value] of related) {
           Object.assign(marks, value.marks ?? {})
           Object.assign(mergedNotes, value.notes ?? {})
           if (value.herkesGeldi) savedEveryone = true
+          if (value.courseId) owner = value.courseId
         }
+        const hasAttendance = savedEveryone || Object.values(marks).some((mark) => mark === 'D' || mark === 'G')
+        if (courseId && hasAttendance && !owner) {
+          owner = courseId
+          const userRef = doc(db, 'users', user.uid)
+          const updates: Record<string, string> = {}
+          const keys = related.length ? related.map(([key]) => key) : [canonicalKey]
+          for (const key of keys) updates[`classAttendances.${key}.courseId`] = courseId
+          void updateDoc(userRef, updates).catch((error) => console.error('Yoklama derse bağlanamadı:', error))
+        }
+        courseOwnerRef.current = owner
         sessionKeyRef.current = canonicalKey
         duplicateKeysRef.current = related.map(([key]) => key).filter((key) => key !== canonicalKey)
         marksRef.current = marks
@@ -413,7 +432,7 @@ export function useClassAttendance(
     return () => {
       cancelled = true
     }
-  }, [user, sinifAdi, date, time, bellSchedule])
+  }, [user, sinifAdi, date, time, bellSchedule, courseId])
 
   const setMark = useCallback(
     async (okulNo: string, mark: AttendanceMark) => {
@@ -444,6 +463,10 @@ export function useClassAttendance(
         updatedAt: serverTimestamp(),
       }
       if (period != null) payload.lessonPeriod = period
+      if (courseId && (!courseOwnerRef.current || courseOwnerRef.current === courseId)) {
+        payload.courseId = courseId
+        courseOwnerRef.current = courseId
+      }
       if (Object.keys(notesRef.current).length > 0) payload.notes = notesRef.current
       if (herkesGeldiRef.current) payload.herkesGeldi = true
       const extras = duplicateKeysRef.current.filter((key) => key !== sessionKey)
@@ -457,7 +480,7 @@ export function useClassAttendance(
         await setDoc(userRef, { classAttendances: { [sessionKey]: payload } }, { merge: true })
       }
     },
-    [user, sinifAdi, date, time, bellSchedule],
+    [user, sinifAdi, date, time, bellSchedule, courseId],
   )
 
   const replaceMarks = useCallback(
@@ -484,6 +507,10 @@ export function useClassAttendance(
         updatedAt: serverTimestamp(),
       }
       if (period != null) payload.lessonPeriod = period
+      if (courseId && (!courseOwnerRef.current || courseOwnerRef.current === courseId)) {
+        payload.courseId = courseId
+        courseOwnerRef.current = courseId
+      }
       if (Object.keys(notesRef.current).length > 0) payload.notes = notesRef.current
       if (herkesGeldiRef.current) payload.herkesGeldi = true
       const extras = duplicateKeysRef.current.filter((key) => key !== sessionKey)
@@ -497,7 +524,7 @@ export function useClassAttendance(
         await setDoc(userRef, { classAttendances: { [sessionKey]: payload } }, { merge: true })
       }
     },
-    [user, sinifAdi, date, time, bellSchedule],
+    [user, sinifAdi, date, time, bellSchedule, courseId],
   )
 
   const setNote = useCallback(
@@ -525,6 +552,10 @@ export function useClassAttendance(
         updatedAt: serverTimestamp(),
       }
       if (period != null) payload.lessonPeriod = period
+      if (courseId && (!courseOwnerRef.current || courseOwnerRef.current === courseId)) {
+        payload.courseId = courseId
+        courseOwnerRef.current = courseId
+      }
       if (Object.keys(next).length > 0) payload.notes = next
       if (herkesGeldiRef.current) payload.herkesGeldi = true
       const userRef = doc(db, 'users', user.uid)
@@ -534,7 +565,7 @@ export function useClassAttendance(
         await setDoc(userRef, { classAttendances: { [sessionKey]: payload } }, { merge: true })
       }
     },
-    [user, sinifAdi, date, time, bellSchedule],
+    [user, sinifAdi, date, time, bellSchedule, courseId],
   )
 
   const markEveryonePresent = useCallback(async () => {
@@ -557,6 +588,10 @@ export function useClassAttendance(
       updatedAt: serverTimestamp(),
     }
     if (period != null) payload.lessonPeriod = period
+    if (courseId && (!courseOwnerRef.current || courseOwnerRef.current === courseId)) {
+      payload.courseId = courseId
+      courseOwnerRef.current = courseId
+    }
     if (Object.keys(notesRef.current).length > 0) payload.notes = notesRef.current
     const userRef = doc(db, 'users', user.uid)
     try {
@@ -564,7 +599,7 @@ export function useClassAttendance(
     } catch {
       await setDoc(userRef, { classAttendances: { [sessionKey]: payload } }, { merge: true })
     }
-  }, [user, sinifAdi, date, time, bellSchedule])
+  }, [user, sinifAdi, date, time, bellSchedule, courseId])
 
   return { marks, notes, herkesGeldi, loading, setMark, setNote, markEveryonePresent, replaceMarks, lessonPeriod }
 }
@@ -602,6 +637,7 @@ export async function saveLessonIfUnrecorded(
   time: string,
   marks: ClassAttendanceMarks,
   bellSchedule?: BellSchedule | null,
+  courseId?: string,
 ) {
   const clock = normalizeTime(time)
   const period = bellSchedule ? findLessonPeriodForTime(bellSchedule, clock) : null
@@ -610,11 +646,20 @@ export async function saveLessonIfUnrecorded(
   const snap = await getDoc(userRef)
   const all = (snap.data()?.classAttendances ?? {}) as Record<
     string,
-    { sinifAdi?: string; date?: string; time?: string; lessonPeriod?: number; marks?: ClassAttendanceMarks; herkesGeldi?: boolean }
+    { sinifAdi?: string; date?: string; time?: string; lessonPeriod?: number; marks?: ClassAttendanceMarks; herkesGeldi?: boolean; courseId?: string }
   >
   const matching = Object.entries(all).filter(([key, value]) =>
     recordMatchesLesson(key, value, sinifAdi, date, clock, period, canonicalKey, bellSchedule),
   )
+  if (courseId) {
+    const ownedByOther = matching.some(([, value]) => value.courseId && value.courseId !== courseId)
+    const unowned = matching.filter(([, value]) => recordHasAttendance(value) && !value.courseId)
+    if (!ownedByOther && unowned.length) {
+      const updates: Record<string, string> = {}
+      for (const [key] of unowned) updates[`classAttendances.${key}.courseId`] = courseId
+      await updateDoc(userRef, updates)
+    }
+  }
   if (matching.some(([, value]) => recordHasAttendance(value) && !value.herkesGeldi)) return false
   if (matching.some(([, value]) => Object.values(value.marks ?? {}).some((mark) => mark === 'D' || mark === 'G'))) return false
   const hasMarks = Object.values(marks).some((mark) => mark === 'D' || mark === 'G')
@@ -631,6 +676,7 @@ export async function saveLessonIfUnrecorded(
     updatedAt: serverTimestamp(),
   }
   if (period != null) payload.lessonPeriod = period
+  if (courseId) payload.courseId = courseId
   try {
     await updateDoc(userRef, { [`classAttendances.${canonicalKey}`]: payload as unknown as FieldValue })
   } catch {
@@ -644,6 +690,7 @@ export function useRecordPresentLessons(
   stamps: { date: string; time: string; marks: ClassAttendanceMarks }[],
   bellSchedule: BellSchedule | null | undefined,
   ready: boolean,
+  courseId?: string,
 ) {
   const { user } = useAuth()
   const done = useRef(new Set<string>())
@@ -662,7 +709,7 @@ export function useRecordPresentLessons(
         const key = `${lessonAttendanceKey(sinifAdi, stamp.date, period, clock)}|${Object.keys(stamp.marks).sort().join(',')}`
         if (done.current.has(key)) continue
         try {
-          await saveLessonIfUnrecorded(user.uid, sinifAdi, stamp.date, stamp.time, stamp.marks, bellSchedule)
+          await saveLessonIfUnrecorded(user.uid, sinifAdi, stamp.date, stamp.time, stamp.marks, bellSchedule, courseId)
           done.current.add(key)
         } catch (error) {
           console.error('Yoklama kaydı yazılamadı:', error)
@@ -672,5 +719,5 @@ export function useRecordPresentLessons(
     return () => {
       cancelled = true
     }
-  }, [user, sinifAdi, bellSchedule, ready, stampKey, stamps])
+  }, [user, sinifAdi, bellSchedule, ready, stampKey, stamps, courseId])
 }

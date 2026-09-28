@@ -186,7 +186,7 @@ export function SeatingPlanPage() {
   const lessonPin = navState?.tarih
     ? { date: navState.tarih, time: navState.saat || '00:00' }
     : null
-  const lessonSlot = useCourseLessonSlot(sinifAdi, lessonPin)
+  const lessonSlot = useCourseLessonSlot(sinifAdi, lessonPin, courseId)
 
   // -- STATE & REFS --
   const [scores, setScores] = useState<Record<string, Score>>({})
@@ -1315,10 +1315,12 @@ export function SeatingPlanPage() {
   return (
     <Layout 
       title={
-        <div className="flex flex-col items-center justify-center gap-px md:hidden w-full">
-          <span className="truncate text-[11px] font-semibold uppercase tracking-wide leading-none">{course?.dersAdi}</span>
+        <div className="flex flex-col items-center justify-center gap-px w-full">
+          <span className="truncate text-[11px] font-semibold uppercase tracking-wide leading-none md:text-[13px]">
+            {course?.dersAdi}
+          </span>
           {activeApplicationId && (
-            <span className="truncate text-[9px] font-semibold text-emerald-700 leading-none w-full">
+            <span className="truncate text-[9px] font-semibold text-emerald-700 leading-none w-full md:text-[10px]">
               {activeApplicationAd}
             </span>
           )}
@@ -1327,21 +1329,8 @@ export function SeatingPlanPage() {
       stackedMobileTitle={!!activeApplicationId}
       showBack 
       backTitle="Liste Görünümü"
-      hideTitleOnDesktop={true}
       hideNav
       onBackClick={handleBackNavigation}
-      leftExtra={
-        <div className="flex flex-col items-start gap-0.5">
-          <span className="text-[13px] font-bold text-slate-800 uppercase tracking-[0.15em]">
-            {course?.dersAdi}
-          </span>
-          {activeApplicationId && (
-            <span className="text-[10px] font-semibold text-emerald-700 truncate max-w-[220px] leading-tight">
-              {activeApplicationAd}
-            </span>
-          )}
-        </div>
-      }
       rightAction={
         <div className="flex items-center gap-1.5 pointer-events-auto">
           {hasUnsavedChanges && (
@@ -1432,7 +1421,7 @@ export function SeatingPlanPage() {
         </div>
       }
     >
-      <div className="absolute inset-0 top-14 md:top-0 bg-[#e5e7eb] overflow-hidden flex flex-col z-0">
+      <div className="absolute inset-0 top-14 bg-[#e5e7eb] overflow-hidden flex flex-col z-0">
         {/* Canvas Alanı */}
         <div ref={canvasContainerRef} className="flex-1 relative h-full w-full bg-[#e5e7eb] touch-none">
           <button

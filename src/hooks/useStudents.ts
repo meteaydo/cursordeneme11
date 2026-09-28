@@ -4,11 +4,8 @@ import {
   query,
   onSnapshot,
   updateDoc,
-  deleteDoc,
   doc,
-  serverTimestamp,
   writeBatch,
-  setDoc,
   arrayUnion,
   arrayRemove,
   increment,
@@ -17,6 +14,14 @@ import { db } from '@/lib/firebase'
 import type { Student, StudentFormData } from '@/types'
 import { dedupeEskiPcNolari, pcNoKey, samePcNo } from '@/lib/utils'
 import { schedulePortalSync } from '@/lib/studentPortal'
+import { toast } from '@/hooks/use-toast'
+import {
+  addSharedStudent,
+  addSharedStudentsBulk,
+  deleteSharedStudent,
+  fanOutStudentIdentity,
+  syncCourseWithRoster,
+} from '@/services/classRosterService'
 
 export function useStudents(courseId: string) {
   const [students, setStudents] = useState<Student[]>([])
@@ -31,50 +36,49 @@ export function useStudents(courseId: string) {
     }
 
     setLoading(true)
-    const q = query(
-      collection(db, 'courses', courseId, 'students'),
-    )
-    const unsub = onSnapshot(q, (snap) => {
-      const list = snap.docs.map((d) => ({
-        id: d.id,
-        courseId,
-        ...(d.data() as Omit<Student, 'id' | 'courseId'>),
-        createdAt: d.data().createdAt?.toDate() ?? new Date(),
-      }))
-      list.sort((a, b) => Number(a.no) - Number(b.no) || a.no.localeCompare(b.no))
-      setStudents(list)
-      setLoading(false)
-    }, (error) => {
-      console.error('Firestore students listener error:', error)
-      setStudents([])
-      setLoading(false)
-    })
-    return unsub
+    let unsub = () => {}
+    let cancelled = false
+    ;(async () => {
+      try {
+        await syncCourseWithRoster(courseId)
+      } catch (error) {
+        console.error('Ortak sınıf listesi eşitlenemedi:', error)
+        toast({
+          title: 'Liste kopyalanamadı',
+          description: error instanceof Error ? error.message : 'Kayıtlı öğrenci listesi alınamadı.',
+          variant: 'destructive',
+        })
+      }
+      if (cancelled) return
+      const q = query(collection(db, 'courses', courseId, 'students'))
+      unsub = onSnapshot(q, (snap) => {
+        const list = snap.docs.map((d) => ({
+          id: d.id,
+          courseId,
+          ...(d.data() as Omit<Student, 'id' | 'courseId'>),
+          createdAt: d.data().createdAt?.toDate() ?? new Date(),
+        }))
+        list.sort((a, b) => Number(a.no) - Number(b.no) || a.no.localeCompare(b.no))
+        setStudents(list)
+        setLoading(false)
+      }, (error) => {
+        console.error('Firestore students listener error:', error)
+        setStudents([])
+        setLoading(false)
+      })
+    })()
+    return () => {
+      cancelled = true
+      unsub()
+    }
   }, [courseId])
 
   const addStudent = async (data: StudentFormData) => {
-    // Generate ID for optimistic UI
-    const docRef = doc(collection(db, 'courses', courseId, 'students'))
-    
-    setDoc(docRef, {
-      ...data,
-      createdAt: serverTimestamp(),
-    }).catch(console.error)
-    
-    return docRef.id
+    return addSharedStudent(courseId, data)
   }
 
   const addStudentsBulk = async (studentList: (StudentFormData & { id?: string })[]): Promise<string[]> => {
-    const batch = writeBatch(db)
-    const ids: string[] = []
-    studentList.forEach((s) => {
-      const ref = s.id ? doc(db, 'courses', courseId, 'students', s.id) : doc(collection(db, 'courses', courseId, 'students'))
-      ids.push(ref.id)
-      const { id: _id, ...data } = s
-      batch.set(ref, { ...data, createdAt: serverTimestamp() })
-    })
-    await batch.commit().catch(console.error)
-    return ids
+    return addSharedStudentsBulk(courseId, studentList)
   }
 
   const updateStudent = async (studentId: string, data: Partial<StudentFormData>) => {
@@ -122,6 +126,21 @@ export function useStudents(courseId: string) {
     batch.update(studentRef, data);
 
     await batch.commit().catch(console.error);
+
+    const current = students.find((s) => s.id === studentId)
+    const identity: { no?: string; adSoyad?: string; foto?: string } = {}
+    if (data.no !== undefined && data.no !== current?.no) identity.no = data.no
+    if (data.adSoyad !== undefined && data.adSoyad !== current?.adSoyad) identity.adSoyad = data.adSoyad
+    if (
+      data.foto !== undefined &&
+      !String(data.foto).startsWith('blob:') &&
+      (data.foto || '') !== (current?.foto || '')
+    ) {
+      identity.foto = data.foto
+    }
+    if (Object.keys(identity).length) {
+      await fanOutStudentIdentity(courseId, studentId, identity).catch(console.error)
+    }
   }
 
   const addBehaviorStar = async (studentId: string, type: 'yellow' | 'purple', note: string, photoUrls?: string[]) => {
@@ -181,7 +200,7 @@ export function useStudents(courseId: string) {
   }
 
   const deleteStudent = async (studentId: string) => {
-    deleteDoc(doc(db, 'courses', courseId, 'students', studentId)).catch(console.error)
+    await deleteSharedStudent(courseId, studentId)
   }
 
   return { students, loading, addStudent, addStudentsBulk, updateStudent, addBehaviorStar, deleteBehaviorLog, updateBehaviorLog, deleteStudent }

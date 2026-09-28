@@ -45,7 +45,7 @@ export function Header({
   }
 
   return (
-    <header className={`sticky top-0 z-[200] bg-white border-b border-border shadow-sm overflow-visible ${hideTitleOnDesktop ? 'md:bg-transparent md:border-none md:shadow-none md:pointer-events-none' : ''}`}>
+    <header className="sticky top-0 z-[200] bg-white border-b border-border shadow-sm overflow-visible">
       <div
         className={`${hideTitleOnDesktop ? 'max-w-none md:px-[50px]' : 'container max-w-2xl mx-auto'} flex items-center justify-between h-14 min-h-14 px-4 gap-2 relative overflow-visible`}
       >

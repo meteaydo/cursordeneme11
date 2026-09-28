@@ -119,7 +119,7 @@ export default function CourseDetailPage() {
   const location = useLocation()
   const id = courseId!
 
-  const state = location.state as { courseName?: string; className?: string; fromTemplate?: boolean } | null
+  const state = location.state as { courseName?: string; className?: string; fromTemplate?: boolean; sharedRoster?: boolean } | null
 
   const { students, loading: studentsLoading, addStudent, addStudentsBulk } = useStudents(id)
   const { applications, loading: appsLoading, addApplication, updateApplication, deleteApplication, getScores, setScore } = useApplications(id)
@@ -158,7 +158,7 @@ export default function CourseDetailPage() {
       cancelled = true
     }
   }, [lessonStampKey, students, bellSchedule, sinifAdi, scheduleLoading, appsLoading, applications])
-  useRecordPresentLessons(sinifAdi, presentLessonStamps, bellSchedule, !scheduleLoading && !appsLoading)
+  useRecordPresentLessons(sinifAdi, presentLessonStamps, bellSchedule, !scheduleLoading && !appsLoading, id)
   const nowSlot = useMemo(() => {
     const d = new Date()
     return { date: format(d, 'yyyy-MM-dd'), time: format(d, 'HH:mm') }
@@ -170,7 +170,7 @@ export default function CourseDetailPage() {
   const lessonPin = activeApp?.tarih
     ? { date: activeApp.tarih, time: appClock(activeApp) || '00:00' }
     : null
-  const lessonSlot = useCourseLessonSlot(sinifAdi, lessonPin)
+  const lessonSlot = useCourseLessonSlot(sinifAdi, lessonPin, id)
   const liveAttendance = useClassAttendance(sinifAdi, nowSlot.date, nowSlot.time, bellSchedule)
   const [scores, setScores] = useState<Record<string, Score>>({})
   const [everyoneConfirm, setEveryoneConfirm] = useState(false)
@@ -292,6 +292,7 @@ export default function CourseDetailPage() {
 
   // Template loader denemesi state'i
   const templateAttempted = useRef(false)
+  const sharedRosterToasted = useRef(false)
 
   // Hazır liste yükleme state'leri
   const [grades, setGrades] = useState<string[]>([])
@@ -386,13 +387,20 @@ export default function CourseDetailPage() {
     }
   }, [applications])
 
-  // Template kontrolü
+  // Template kontrolü. Ortak liste varsa Excel yeniden inmez.
   useEffect(() => {
+    if (state?.sharedRoster) return
     if (state?.fromTemplate && state?.className && !studentsLoading && students.length === 0 && !templateAttempted.current) {
       templateAttempted.current = true;
       loadTemplate(state.className);
     }
-  }, [state?.fromTemplate, state?.className, studentsLoading, students.length]);
+  }, [state?.sharedRoster, state?.fromTemplate, state?.className, studentsLoading, students.length]);
+
+  useEffect(() => {
+    if (!state?.sharedRoster || sharedRosterToasted.current || studentsLoading || students.length === 0) return
+    sharedRosterToasted.current = true
+    toast({ title: 'Ortak liste', description: 'Bu sınıfın kayıtlı öğrenci listesi kullanıldı.' })
+  }, [state?.sharedRoster, studentsLoading, students.length])
 
   const loadTemplate = async (className: string) => {
     setExcelParsing(true)
@@ -635,22 +643,27 @@ export default function CourseDetailPage() {
     }
 
     setStudentSaving(true)
-    const studentId = await addStudent({ ...studentForm, foto: '' })
-    if (studentId && newStudentPhoto) {
-      try {
-        await queueImageUpload(newStudentPhoto, `students/${studentId}/foto.jpg`, {
-          collection: `courses/${id}/students`,
-          docId: studentId,
-          field: 'foto',
-        })
-      } catch {
-        toast({ title: 'Uyarı', description: 'Öğrenci eklendi ancak fotoğraf yüklenemedi.', variant: 'destructive' })
+    try {
+      const studentId = await addStudent({ ...studentForm, foto: '' })
+      if (studentId && newStudentPhoto) {
+        try {
+          await queueImageUpload(newStudentPhoto, `students/${studentId}/foto.jpg`, {
+            collection: `courses/${id}/students`,
+            docId: studentId,
+            field: 'foto',
+          })
+        } catch {
+          toast({ title: 'Uyarı', description: 'Öğrenci eklendi ancak fotoğraf yüklenemedi.', variant: 'destructive' })
+        }
       }
+      clearNewStudentPhoto()
+      setStudentForm(EMPTY_STUDENT)
+      setAddStudentOpen(false)
+    } catch {
+      toast({ title: 'Hata', description: 'Öğrenci eklenemedi.', variant: 'destructive' })
+    } finally {
+      setStudentSaving(false)
     }
-    clearNewStudentPhoto()
-    setStudentForm(EMPTY_STUDENT)
-    setAddStudentOpen(false)
-    setStudentSaving(false)
   }
 
   const handleExcelImport = async (e: React.ChangeEvent<HTMLInputElement>) => {

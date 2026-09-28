@@ -51,7 +51,7 @@ export function Layout({
         onBackClick={onBackClick}
         stackedMobileTitle={stackedMobileTitle}
       />
-      <main className={`flex-1 container mx-auto px-4 py-4 ${wide ? 'max-w-6xl' : 'max-w-2xl'} ${hideNav ? 'pb-8' : 'pb-28'}`}>
+      <main className={`flex-1 ${hideNav ? 'relative p-0' : 'container mx-auto px-4 py-4'} ${wide ? 'max-w-6xl' : hideNav ? 'max-w-none w-full' : 'max-w-2xl'} ${hideNav ? 'pb-0' : 'pb-28'}`}>
         {children}
       </main>
       {!hideNav && (

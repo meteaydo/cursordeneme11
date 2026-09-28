@@ -32,7 +32,7 @@ export function attendanceScoreFields(current: AttendanceMark | undefined, mark:
   return { devamsiz: false, gec: true }
 }
 
-export function useCourseLessonSlot(sinifAdi: string, pinned?: { date: string; time: string } | null) {
+export function useCourseLessonSlot(sinifAdi: string, pinned?: { date: string; time: string } | null, courseId?: string) {
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const now = useMemo(() => nowLocal(), [])
@@ -45,7 +45,7 @@ export function useCourseLessonSlot(sinifAdi: string, pinned?: { date: string; t
   const date = nudge?.date || pinned?.date || searchParams.get('tarih') || now.date
   const time = normalizeTime(nudge?.time || pinned?.time || searchParams.get('saat') || now.time)
   const { schedule } = useBellSchedule()
-  const { marks, notes, herkesGeldi, setMark, setNote, markEveryonePresent, replaceMarks, lessonPeriod, loading } = useClassAttendance(sinifAdi, date, time, schedule)
+  const { marks, notes, herkesGeldi, setMark, setNote, markEveryonePresent, replaceMarks, lessonPeriod, loading } = useClassAttendance(sinifAdi, date, time, schedule, courseId)
 
   const patch = (partial: { tarih?: string; saat?: string }) => {
     const nextDate = partial.tarih || date

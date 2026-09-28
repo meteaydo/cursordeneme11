@@ -75,6 +75,23 @@ service cloud.firestore {
       }
     }
 
+    function ownsRoster(rosterId) {
+      return isSignedIn() && !isStudent()
+        && rosterId.split('_')[0] == request.auth.uid;
+    }
+
+    match /classRosters/{rosterId} {
+      allow read: if ownsRoster(rosterId);
+      allow update, delete: if ownsRoster(rosterId)
+        && resource.data.teacherId == request.auth.uid;
+      allow create: if ownsRoster(rosterId)
+        && request.resource.data.teacherId == request.auth.uid;
+
+      match /students/{studentId} {
+        allow read, write: if ownsRoster(rosterId);
+      }
+    }
+
     match /timetables/{timetableId} {
       allow read, write: if isSignedIn() && !isStudent();
     }
