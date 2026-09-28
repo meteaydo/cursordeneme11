@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react'
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { useParams, useLocation, useNavigate } from 'react-router-dom'
 // @ts-ignore
@@ -60,6 +60,39 @@ const PC_LABEL_OVERLAP = 10
 const PC_LABEL_BOTTOM_OVERLAP = 4
 const NAME_BAR_H = 16
 const LAB_REGION_THRESH = 40
+const CANVAS_W = 2000
+const CANVAS_H = 2000
+const MARQUEE_MIN_PX = 6
+/** Mobilde boş alanda kısa sürükleme pan, basılı tutup sürükleme kutu seçimi */
+const MARQUEE_TOUCH_HOLD_MS = 280
+const MARQUEE_PAN_CANCEL_PX = 14
+
+function clientToCanvasPoint(clientX: number, clientY: number) {
+  const el = document.getElementById('seating-canvas')
+  if (!el) return { x: 0, y: 0 }
+  const rect = el.getBoundingClientRect()
+  const scaleX = rect.width / CANVAS_W
+  const scaleY = rect.height / CANVAS_H
+  return {
+    x: (clientX - rect.left) / scaleX,
+    y: (clientY - rect.top) / scaleY,
+  }
+}
+
+function normalizeMarqueeRect(m: { x1: number; y1: number; x2: number; y2: number }) {
+  return {
+    x0: Math.min(m.x1, m.x2),
+    y0: Math.min(m.y1, m.y2),
+    x1: Math.max(m.x1, m.x2),
+    y1: Math.max(m.y1, m.y2),
+  }
+}
+
+function marqueeHitsObject(obj: SeatObject, box: ReturnType<typeof normalizeMarqueeRect>) {
+  if (obj.type === 'pc_label') return false
+  const { w, h } = getObjectSize(obj.type)
+  return obj.x < box.x1 && obj.x + w > box.x0 && obj.y < box.y1 && obj.y + h > box.y0
+}
 
 function getLabDesks(objs: SeatObject[]): SeatObject[] {
   return objs.filter((o) => o.type === 'student' || o.type === 'empty_desk')
@@ -208,6 +241,21 @@ export function SeatingPlanPage() {
   const [layoutVersion, setLayoutVersion] = useState(0)
   const [isSelectionMode, setIsSelectionMode] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [marquee, setMarquee] = useState<{ x1: number; y1: number; x2: number; y2: number } | null>(null)
+  const [isMarqueeSelecting, setIsMarqueeSelecting] = useState(false)
+  const marqueeGestureRef = useRef<{
+    pointerId: number
+    additive: boolean
+    started: boolean
+    startCanvas: { x: number; y: number }
+    startClient: { x: number; y: number }
+    holdTimer: ReturnType<typeof setTimeout> | null
+    captureEl: HTMLElement | null
+  } | null>(null)
+  const marqueeMoveListenerRef = useRef<(e: PointerEvent) => void>(() => {})
+  const marqueeUpListenerRef = useRef<(e: PointerEvent) => void>(() => {})
+  const stableMarqueeMoveRef = useRef((e: PointerEvent) => marqueeMoveListenerRef.current(e))
+  const stableMarqueeUpRef = useRef((e: PointerEvent) => marqueeUpListenerRef.current(e))
   const [history, setHistory] = useState<SeatObject[][]>([])
   const [redoHistory, setRedoHistory] = useState<SeatObject[][]>([])
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
@@ -1190,6 +1238,154 @@ export function SeatingPlanPage() {
     }
   }
 
+  const finishMarqueeGesture = useCallback(() => {
+    const g = marqueeGestureRef.current
+    if (g?.holdTimer) clearTimeout(g.holdTimer)
+    marqueeGestureRef.current = null
+    setIsMarqueeSelecting(false)
+    setMarquee(null)
+    window.removeEventListener('pointermove', stableMarqueeMoveRef.current)
+    window.removeEventListener('pointerup', stableMarqueeUpRef.current)
+    window.removeEventListener('pointercancel', stableMarqueeUpRef.current)
+  }, [])
+
+  const applyMarqueeSelection = useCallback((rect: { x1: number; y1: number; x2: number; y2: number }, additive: boolean) => {
+    const box = normalizeMarqueeRect(rect)
+    if (box.x1 - box.x0 < MARQUEE_MIN_PX && box.y1 - box.y0 < MARQUEE_MIN_PX) return false
+
+    const hitIds = objectsRef.current
+      .filter((obj) => marqueeHitsObject(obj, box))
+      .map((obj) => obj.id)
+
+    if (hitIds.length === 0) return false
+
+    setIsSelectionMode(true)
+    setSelectedIds((prev) => (additive ? [...new Set([...prev, ...hitIds])] : hitIds))
+    try {
+      if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(20)
+    } catch { /* ignore */ }
+    return true
+  }, [])
+
+  useEffect(() => {
+    marqueeMoveListenerRef.current = (e: PointerEvent) => {
+      const g = marqueeGestureRef.current
+      if (!g || e.pointerId !== g.pointerId) return
+
+      const pt = clientToCanvasPoint(e.clientX, e.clientY)
+
+      if (!g.started) {
+        if (e.pointerType === 'touch') {
+          const moved = Math.hypot(e.clientX - g.startClient.x, e.clientY - g.startClient.y)
+          if (moved > MARQUEE_PAN_CANCEL_PX) {
+            finishMarqueeGesture()
+            return
+          }
+          return
+        }
+
+        const dx = Math.abs(pt.x - g.startCanvas.x)
+        const dy = Math.abs(pt.y - g.startCanvas.y)
+        if (dx < MARQUEE_MIN_PX && dy < MARQUEE_MIN_PX) return
+        g.started = true
+        setIsMarqueeSelecting(true)
+        try {
+          g.captureEl?.setPointerCapture(g.pointerId)
+        } catch { /* ignore */ }
+      }
+
+      e.preventDefault()
+      setMarquee({ x1: g.startCanvas.x, y1: g.startCanvas.y, x2: pt.x, y2: pt.y })
+    }
+
+    marqueeUpListenerRef.current = (e: PointerEvent) => {
+      const g = marqueeGestureRef.current
+      if (!g || e.pointerId !== g.pointerId) return
+
+      const pt = clientToCanvasPoint(e.clientX, e.clientY)
+      const rect = { x1: g.startCanvas.x, y1: g.startCanvas.y, x2: pt.x, y2: pt.y }
+
+      if (g.started) {
+        const selected = applyMarqueeSelection(rect, g.additive)
+        if (!selected && !g.additive) {
+          setIsSelectionMode(false)
+          setSelectedIds([])
+        }
+      } else if (e.pointerType === 'mouse') {
+        setIsSelectionMode(false)
+        setSelectedIds([])
+      }
+
+      try {
+        g.captureEl?.releasePointerCapture(g.pointerId)
+      } catch { /* ignore */ }
+      finishMarqueeGesture()
+    }
+  }, [applyMarqueeSelection, finishMarqueeGesture])
+
+  useEffect(() => () => finishMarqueeGesture(), [finishMarqueeGesture])
+
+  const handleCanvasPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    if (activeIdRef.current) return
+    if ((e.target as Element).closest('.drv-draggable')) return
+    if (e.pointerType === 'mouse' && e.button !== 0) return
+    if (!e.isPrimary) return
+
+    const startCanvas = clientToCanvasPoint(e.clientX, e.clientY)
+    const startClient = { x: e.clientX, y: e.clientY }
+    const additive = e.shiftKey
+    const captureEl = e.currentTarget
+
+    const attach = () => {
+      window.addEventListener('pointermove', stableMarqueeMoveRef.current, { passive: false })
+      window.addEventListener('pointerup', stableMarqueeUpRef.current)
+      window.addEventListener('pointercancel', stableMarqueeUpRef.current)
+    }
+
+    if (e.pointerType === 'mouse') {
+      e.stopPropagation()
+      e.preventDefault()
+      marqueeGestureRef.current = {
+        pointerId: e.pointerId,
+        additive,
+        started: false,
+        startCanvas,
+        startClient,
+        holdTimer: null,
+        captureEl,
+      }
+      attach()
+      try {
+        captureEl.setPointerCapture(e.pointerId)
+      } catch { /* ignore */ }
+      return
+    }
+
+    // Dokunmatik: kısa sürükleme pan kalsın; basılı tutup sürükleyince kutu seçimi
+    marqueeGestureRef.current = {
+      pointerId: e.pointerId,
+      additive,
+      started: false,
+      startCanvas,
+      startClient,
+      holdTimer: setTimeout(() => {
+        const live = marqueeGestureRef.current
+        if (!live || live.started) return
+        live.started = true
+        setIsMarqueeSelecting(true)
+        setMarquee({ x1: live.startCanvas.x, y1: live.startCanvas.y, x2: live.startCanvas.x, y2: live.startCanvas.y })
+        try {
+          live.captureEl?.setPointerCapture(live.pointerId)
+        } catch { /* ignore */ }
+        try {
+          if (typeof navigator !== 'undefined' && navigator.vibrate) navigator.vibrate(15)
+        } catch { /* ignore */ }
+      }, MARQUEE_TOUCH_HOLD_MS),
+      captureEl,
+    }
+    attach()
+  }, [])
+
   // DND Handlers
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 5 } }),
@@ -1421,7 +1617,7 @@ export function SeatingPlanPage() {
         </div>
       }
     >
-      <div className="absolute inset-0 top-14 bg-[#e5e7eb] overflow-hidden flex flex-col z-0">
+      <div className="absolute inset-0 bg-[#e5e7eb] overflow-hidden flex flex-col z-0">
         {/* Canvas Alanı */}
         <div ref={canvasContainerRef} className="flex-1 relative h-full w-full bg-[#e5e7eb] touch-none">
           <button
@@ -1442,7 +1638,7 @@ export function SeatingPlanPage() {
             centerOnInit={false}
             limitToBounds={false}
             wheel={{ disabled: true }}
-            panning={{ disabled: activeId !== null }}
+            panning={{ disabled: activeId !== null || isMarqueeSelecting, activationKeys: [' '] }}
             onTransform={(ref: any) => {
               scaleRef.current = ref.state.scale
               const { positionX, positionY } = ref.state
@@ -1674,11 +1870,22 @@ export function SeatingPlanPage() {
                     </div>
                     )}
 
-                  {/* Çoklu Seçim Araç Çubuğu */}
-                  <div className={`absolute md:top-6 top-14 left-1/2 -translate-x-1/2 z-50 bg-slate-900/90 backdrop-blur-md border border-slate-700 text-white px-5 py-2.5 rounded-full shadow-2xl flex items-center gap-4 transition-all duration-300 origin-top ${isSelectionMode ? 'translate-y-4 opacity-100 scale-100' : '-translate-y-8 opacity-0 scale-95 pointer-events-none'}`}>
-                    <span className="text-[11px] font-semibold">{selectedIds.length} obje seçildi</span>
-                    <div className="w-px h-4 bg-slate-600" />
-                    <button onClick={() => { setIsSelectionMode(false); setSelectedIds([]); }} className="text-[10px] font-bold text-amber-400 hover:text-amber-300 transition-colors tracking-widest px-1">
+                  {/* Çoklu Seçim — tıklamaları engellemesin (yalnızca İPTAL tıklanır) */}
+                  <div
+                    className={`pointer-events-none absolute left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-full border border-slate-700 bg-slate-900/90 px-4 py-2 text-white shadow-2xl backdrop-blur-md transition-all duration-300 md:top-6 bottom-24 md:bottom-auto ${
+                      isSelectionMode ? 'translate-y-0 opacity-100 scale-100' : 'pointer-events-none -translate-y-4 opacity-0 scale-95 md:-translate-y-8'
+                    }`}
+                  >
+                    <span className="text-[11px] font-semibold whitespace-nowrap">{selectedIds.length} seçili</span>
+                    <div className="h-4 w-px bg-slate-600" />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setIsSelectionMode(false)
+                        setSelectedIds([])
+                      }}
+                      className="pointer-events-auto text-[10px] font-bold tracking-widest text-amber-400 transition-colors hover:text-amber-300 px-1 py-1 -my-1"
+                    >
                       İPTAL
                     </button>
                   </div>
@@ -1693,12 +1900,7 @@ export function SeatingPlanPage() {
                     modifiers={[customZoomAndSnapModifier]}
                   >
                     <div id="seating-canvas" className="w-[2000px] h-[2000px] bg-[#e5e7eb] relative">
-                      <DroppableCanvas onClick={() => {
-                        if (isSelectionMode) {
-                          setIsSelectionMode(false);
-                          setSelectedIds([]);
-                        }
-                      }}>
+                      <DroppableCanvas marquee={marquee} onCanvasPointerDown={handleCanvasPointerDown}>
                         <div id="guide-x" className="absolute top-0 bottom-0 w-[2px] bg-primary/40 -translate-x-1/2 shadow-sm z-40 pointer-events-none" style={{ display: 'none' }} />
                         <div id="guide-y" className="absolute left-0 right-0 h-[2px] bg-primary/40 -translate-y-1/2 shadow-sm z-40 pointer-events-none" style={{ display: 'none' }} />
 
@@ -1960,13 +2162,38 @@ function UnsavedConfirmModal({ isOpen, onClose, onConfirm }: { isOpen: boolean, 
   );
 }
 
-function DroppableCanvas({ children, onClick }: { children: React.ReactNode, onClick?: (e: React.MouseEvent) => void }) {
+function DroppableCanvas({
+  children,
+  marquee,
+  onCanvasPointerDown,
+}: {
+  children: React.ReactNode
+  marquee: { x1: number; y1: number; x2: number; y2: number } | null
+  onCanvasPointerDown: (e: React.PointerEvent<HTMLDivElement>) => void
+}) {
   const { setNodeRef } = useDroppable({ id: 'canvas' })
+  const box = marquee ? normalizeMarqueeRect(marquee) : null
   return (
-    <div ref={setNodeRef} className="absolute inset-0" onClick={(e) => {
-      // Sadece doğrudan arka plana tıklandıysa çalıştır
-      if (e.target === e.currentTarget && onClick) onClick(e);
-    }}>
+    <div
+      ref={setNodeRef}
+      className="absolute inset-0 touch-none"
+      onPointerDown={(e) => {
+        if ((e.target as Element).closest('.drv-draggable')) return
+        if (e.target !== e.currentTarget) return
+        onCanvasPointerDown(e)
+      }}
+    >
+      {box && (
+        <div
+          className="absolute z-[45] pointer-events-none border-2 border-primary bg-primary/15 rounded-sm shadow-[0_0_0_1px_rgba(255,255,255,0.35)_inset]"
+          style={{
+            left: box.x0,
+            top: box.y0,
+            width: Math.max(box.x1 - box.x0, 1),
+            height: Math.max(box.y1 - box.y0, 1),
+          }}
+        />
+      )}
       {children}
     </div>
   )
