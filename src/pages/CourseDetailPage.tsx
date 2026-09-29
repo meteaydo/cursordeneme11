@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useLayoutEffect, useMemo } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { collection, doc } from 'firebase/firestore'
+import { collection, doc, updateDoc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { DialogDescription } from '@/components/ui/dialog'
 import {
@@ -27,7 +27,7 @@ import { SmartNumpad } from '@/components/ui/smart-numpad'
 import { useStudents } from '@/hooks/useStudents'
 import { useApplications } from '@/hooks/useApplications'
 import { useCourses } from '@/hooks/useCourses'
-import { queueImageUpload } from '@/lib/imageQueue'
+import { queueImageUpload, studentFotoKey } from '@/lib/imageQueue'
 import { OfflineImage } from '@/components/ui/OfflineImage'
 import { toast } from '@/hooks/use-toast'
 import type { AnnualPlan, Application, AttendanceMark, ClassAttendanceMarks, Score, Student, StudentFormData } from '@/types'
@@ -36,7 +36,12 @@ import { format } from 'date-fns'
 import { tr } from 'date-fns/locale'
 import { formatTitleCase, formatClassName, getScoreKameraFotolar, getScoreKanitSayilari, MAX_UYGULAMA_FOTO, cn, type KanitKaynagi } from '@/lib/utils'
 import { parseStudentExcel, type ParsedStudent } from '@/lib/excelStudentParser'
-import { parseClassTemplate, fetchClassList, gradesFromClassNames } from '@/services/classTemplateService'
+import {
+  buildRosterSyncPlan,
+  rosterSyncIsEmpty,
+  type RosterSyncPlan,
+} from '@/lib/rosterSync'
+import { parseClassExcelFile, parseClassTemplate, fetchClassList, gradesFromClassNames } from '@/services/classTemplateService'
 import { LessonSlotHeader } from '@/components/LessonSlotHeader'
 import { TimeInput24 } from '@/components/ui/time-input-24'
 import { attendanceScoreFields, useCourseLessonSlot, visibleAttendanceMark } from '@/hooks/useCourseLessonSlot'
@@ -121,7 +126,7 @@ export default function CourseDetailPage() {
 
   const state = location.state as { courseName?: string; className?: string; fromTemplate?: boolean; sharedRoster?: boolean } | null
 
-  const { students, loading: studentsLoading, addStudent, addStudentsBulk } = useStudents(id)
+  const { students, loading: studentsLoading, addStudent, addStudentsBulk, applyRosterSync } = useStudents(id)
   const { applications, loading: appsLoading, addApplication, updateApplication, deleteApplication, getScores, setScore } = useApplications(id)
   const { courses, updateCourse } = useCourses()
   const course = useMemo(() => courses.find((c) => c.id === id), [courses, id])
@@ -224,6 +229,12 @@ export default function CourseDetailPage() {
   const [excelError, setExcelError] = useState<string | null>(null)
   const [excelSaving, setExcelSaving] = useState(false)
   const [previewUrls, setPreviewUrls] = useState<Record<number, string>>({})
+  const syncFileRef = useRef<HTMLInputElement>(null)
+  const [syncPlan, setSyncPlan] = useState<RosterSyncPlan | null>(null)
+  const [syncPreviewOpen, setSyncPreviewOpen] = useState(false)
+  const [syncSaving, setSyncSaving] = useState(false)
+  const [syncAddPreviewUrls, setSyncAddPreviewUrls] = useState<Record<number, string>>({})
+  const [syncPhotoUrls, setSyncPhotoUrls] = useState<Record<string, string>>({})
 
   // Camera
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -647,7 +658,7 @@ export default function CourseDetailPage() {
       const studentId = await addStudent({ ...studentForm, foto: '' })
       if (studentId && newStudentPhoto) {
         try {
-          await queueImageUpload(newStudentPhoto, `students/${studentId}/foto.jpg`, {
+          await queueImageUpload(newStudentPhoto, studentFotoKey(studentId), {
             collection: `courses/${id}/students`,
             docId: studentId,
             field: 'foto',
@@ -726,7 +737,7 @@ export default function CourseDetailPage() {
         let finalFotoUrl = ''
 
         if (s.foto) {
-          const key = `students/${docId}/foto.jpg`
+          const key = studentFotoKey(docId)
           try {
             finalFotoUrl = await queueImageUpload(s.foto, key, {
               collection: `courses/${id}/students`,
@@ -778,6 +789,128 @@ export default function CourseDetailPage() {
     setParsedStudents([])
     setPreviewOpen(false)
     setExcelError(null)
+  }
+
+  const clearSyncPreview = () => {
+    Object.values(syncAddPreviewUrls).forEach(URL.revokeObjectURL)
+    Object.values(syncPhotoUrls).forEach(URL.revokeObjectURL)
+    setSyncAddPreviewUrls({})
+    setSyncPhotoUrls({})
+    setSyncPlan(null)
+    setSyncPreviewOpen(false)
+  }
+
+  const handleSyncExcel = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files?.[0]
+    if (!picked) return
+
+    setExcelParsing(true)
+    setExcelError(null)
+    try {
+      const bytes = await picked.arrayBuffer()
+      const file = new File([bytes], picked.name || 'liste.xlsx', {
+        type: picked.type || 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      })
+      e.target.value = ''
+      const rows = await parseClassExcelFile(file)
+      const plan = buildRosterSyncPlan(
+        students.map((s) => ({
+          id: s.id,
+          no: s.no,
+          adSoyad: s.adSoyad,
+          foto: s.foto,
+          rosterMemberId: s.rosterMemberId,
+        })),
+        rows,
+        formatTitleCase,
+      )
+      if (rosterSyncIsEmpty(plan)) {
+        toast({ title: 'Liste güncel', description: 'Excel ile kayıtlı liste aynı.' })
+        return
+      }
+      const urls: Record<number, string> = {}
+      plan.adds.forEach((add, i) => {
+        if (add.parsed.foto) urls[i] = URL.createObjectURL(add.parsed.foto)
+      })
+      const photoUrls: Record<string, string> = {}
+      plan.photos.forEach((photo) => {
+        if (photo.parsed.foto) photoUrls[photo.studentId] = URL.createObjectURL(photo.parsed.foto)
+      })
+      setSyncAddPreviewUrls(urls)
+      setSyncPhotoUrls(photoUrls)
+      setSyncPlan(plan)
+      setSyncPreviewOpen(true)
+    } catch (err) {
+      toast({
+        title: 'Senkron okunamadı',
+        description: err instanceof Error ? err.message : 'Excel dosyası okunamadı.',
+        variant: 'destructive',
+        duration: 8000,
+      })
+    } finally {
+      e.target.value = ''
+      setExcelParsing(false)
+    }
+  }
+
+  const handleSyncConfirm = async () => {
+    if (!syncPlan) return
+    setSyncSaving(true)
+    try {
+      const mapped: (StudentFormData & { id: string })[] = new Array(syncPlan.adds.length)
+      const tasks = syncPlan.adds.map(async (add, i) => {
+        const docRef = doc(collection(db, 'courses', id, 'students'))
+        const docId = docRef.id
+        const pcIndex = students.length + i + 1
+        const pcNoStr = `PC${String(pcIndex).padStart(2, '0')}`
+        let finalFotoUrl = ''
+        if (add.parsed.foto) {
+          const key = studentFotoKey(docId)
+          try {
+            finalFotoUrl = await queueImageUpload(add.parsed.foto, key, {
+              collection: `courses/${id}/students`,
+              docId,
+              field: 'foto',
+            })
+          } catch {
+            /* foto opsiyonel */
+          }
+        }
+        mapped[i] = {
+          id: docId,
+          no: add.no,
+          adSoyad: add.adSoyad,
+          pcNo: pcNoStr,
+          eskiPcNolari: [],
+          ozelDurumNotlari: '',
+          foto: finalFotoUrl,
+          behaviorStars: { yellow: 0, purple: 0 },
+          behaviorLogs: [],
+        }
+      })
+      await Promise.all(tasks)
+      for (const photo of syncPlan.photos) {
+        if (!photo.parsed.foto) continue
+        const localUrl = await queueImageUpload(photo.parsed.foto, studentFotoKey(photo.studentId), {
+          collection: `courses/${id}/students`,
+          docId: photo.studentId,
+          field: 'foto',
+        })
+        await updateDoc(doc(db, 'courses', id, 'students', photo.studentId), { foto: localUrl })
+      }
+      const { adds, updates, removes, photos } = syncPlan
+      await applyRosterSync(syncPlan, mapped)
+      clearSyncPreview()
+      toast({
+        title: 'Liste senkronize edildi',
+        description: `${adds.length} eklendi · ${updates.length} güncellendi · ${removes.length} çıkarıldı · ${photos.length} foto`,
+      })
+      window.location.replace(window.location.pathname)
+    } catch {
+      toast({ title: 'Senkron başarısız', description: 'Değişiklikler kaydedilemedi.', variant: 'destructive' })
+    } finally {
+      setSyncSaving(false)
+    }
   }
 
   const handleScoreChange = async (studentId: string, puan: string) => {
@@ -1497,6 +1630,28 @@ export default function CourseDetailPage() {
                       {displayedDevamsizCount} devamsız
                     </button>
                   )}
+                  {sinifAdi ? (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        navigate(`/classes/${encodeURIComponent(sinifAdi)}/yoklamalar?ders=${id}&mod=uygula`, {
+                          state: {
+                            courseName: course?.dersAdi || state?.courseName,
+                            className: sinifAdi,
+                            applyAttendanceTo: {
+                              date: lessonSlot.date,
+                              time: lessonSlot.time,
+                              applicationId: selectedApp?.id,
+                            },
+                          },
+                        })
+                      }
+                      className="text-[10px] font-bold leading-none text-primary whitespace-nowrap underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm"
+                      title="Yoklama defterinden geçmiş kayıt seç"
+                    >
+                      Geçmişten al
+                    </button>
+                  ) : null}
                 </div>
               </div>
 
@@ -1988,6 +2143,109 @@ export default function CourseDetailPage() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={syncPreviewOpen} onOpenChange={(open) => { if (!open && !syncSaving) clearSyncPreview() }}>
+        <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Liste senkronu</DialogTitle>
+            <DialogDescription>
+              Excel kaynak kabul edilir. Değişiklikler aynı sınıfın tüm derslerine yansır.
+            </DialogDescription>
+          </DialogHeader>
+          {syncPlan && (
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1 text-sm">
+              {syncPlan.removes.length > 0 && (
+                <section>
+                  <div className="text-xs font-semibold text-red-700 mb-1.5">
+                    Çıkarılacak ({syncPlan.removes.length})
+                  </div>
+                  <ul className="space-y-1">
+                    {syncPlan.removes.map((row) => (
+                      <li key={row.memberId} className="rounded-md border border-red-200 bg-red-50 px-2.5 py-1.5">
+                        <span className="font-medium">{row.adSoyad}</span>
+                        <span className="text-muted-foreground"> · No {row.no}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {syncPlan.updates.length > 0 && (
+                <section>
+                  <div className="text-xs font-semibold text-amber-800 mb-1.5">
+                    İsim güncellenecek ({syncPlan.updates.length})
+                  </div>
+                  <ul className="space-y-1">
+                    {syncPlan.updates.map((row) => (
+                      <li key={row.memberId} className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-1.5">
+                        <span className="text-muted-foreground">No {row.no}: </span>
+                        <span>{row.previousAdSoyad}</span>
+                        <span className="text-muted-foreground"> → </span>
+                        <span className="font-medium">{row.nextAdSoyad}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {syncPlan.photos.length > 0 && (
+                <section>
+                  <div className="text-xs font-semibold text-sky-800 mb-1.5">
+                    Fotoğraf güncellenecek ({syncPlan.photos.length})
+                  </div>
+                  <ul className="space-y-1">
+                    {syncPlan.photos.map((row) => (
+                      <li key={row.studentId} className="flex items-center gap-2 rounded-md border border-sky-200 bg-sky-50 px-2.5 py-1.5">
+                        <div className="w-8 h-8 rounded-full overflow-hidden bg-primary/10 flex items-center justify-center shrink-0">
+                          {syncPhotoUrls[row.studentId] ? (
+                            <img src={syncPhotoUrls[row.studentId]} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-[10px] font-semibold text-primary">+</span>
+                          )}
+                        </div>
+                        <span className="font-medium">{row.adSoyad}</span>
+                        <span className="text-muted-foreground"> · No {row.no}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {syncPlan.adds.length > 0 && (
+                <section>
+                  <div className="text-xs font-semibold text-emerald-800 mb-1.5">
+                    Eklenecek ({syncPlan.adds.length})
+                  </div>
+                  <ul className="space-y-1">
+                    {syncPlan.adds.map((row, i) => (
+                      <li key={`${row.no}-${i}`} className="flex items-center gap-2 rounded-md border border-emerald-200 bg-emerald-50 px-2.5 py-1.5">
+                        <div className="w-8 h-8 rounded-full overflow-hidden bg-primary/10 flex items-center justify-center shrink-0">
+                          {syncAddPreviewUrls[i] ? (
+                            <img src={syncAddPreviewUrls[i]} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <span className="text-[10px] font-semibold text-primary">+</span>
+                          )}
+                        </div>
+                        <span className="font-medium">{row.adSoyad}</span>
+                        <span className="text-muted-foreground"> · No {row.no}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+              {syncPlan.unchanged > 0 && (
+                <p className="text-xs text-muted-foreground">{syncPlan.unchanged} öğrenci değişmeden kalacak.</p>
+              )}
+            </div>
+          )}
+          <DialogFooter className="mt-3">
+            <Button variant="outline" onClick={clearSyncPreview} disabled={syncSaving}>
+              İptal
+            </Button>
+            <Button variant="destructive" onClick={handleSyncConfirm} disabled={syncSaving || !syncPlan}>
+              {syncSaving && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {syncSaving ? 'Uygulanıyor…' : 'Senkronu onayla'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Excel Preview Dialog */}
       <Dialog open={previewOpen} onOpenChange={(open) => { if (!open) handlePreviewCancel() }}>
         <DialogContent className="max-w-lg max-h-[85vh] flex flex-col">
@@ -2157,6 +2415,18 @@ export default function CourseDetailPage() {
             <Button
               variant="ghost"
               className="h-11 justify-start gap-3 rounded-xl text-sm font-semibold"
+              disabled={students.length === 0 || excelParsing}
+              onClick={() => {
+                syncFileRef.current?.click()
+                setCourseMenuOpen(false)
+              }}
+            >
+              <FileSpreadsheet className="h-[18px] w-[18px] shrink-0 text-blue-600" />
+              Excel ile listeyi senkronize et
+            </Button>
+            <Button
+              variant="ghost"
+              className="h-11 justify-start gap-3 rounded-xl text-sm font-semibold"
               onClick={() => {
                 setCourseMenuOpen(false)
                 annualPlanFileRef.current?.click()
@@ -2175,6 +2445,15 @@ export default function CourseDetailPage() {
         accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
         className="hidden"
         onChange={handleAnnualPlanFile}
+      />
+
+      <input
+        ref={syncFileRef}
+        type="file"
+        accept=".xlsx,.xls"
+        className="hidden"
+        onChange={handleSyncExcel}
+        disabled={excelParsing}
       />
 
       <Dialog open={annualPlanOpen} onOpenChange={(open) => {

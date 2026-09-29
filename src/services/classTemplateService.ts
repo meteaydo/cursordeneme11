@@ -58,14 +58,18 @@ export async function fetchClassExcel(sinifAdi: string): Promise<File> {
   return file
 }
 
+/** R2 şablonu ve elle yüklenen Excel aynı ayrıştırıcıdan geçer. */
+export function parseClassExcelFile(file: File): Promise<ParsedStudent[]> {
+  return parseStudentExcel(file)
+}
+
 /**
  * Excel'i indirir ve mevcut parser ile öğrenci objelerine çevirir.
  */
 export async function parseClassTemplate(sinifAdi: string): Promise<ParsedStudent[]> {
   try {
     const file = await fetchClassExcel(sinifAdi)
-    const result = await parseStudentExcel(file)
-    return result
+    return await parseClassExcelFile(file)
   } catch (error) {
     console.error('parseClassTemplate error:', error)
     throw error

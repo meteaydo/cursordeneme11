@@ -104,19 +104,24 @@ window.addEventListener('online', processQueue)
 // Start processing on load just in case
 processQueue()
 
+export function studentFotoKey(studentId: string) {
+  return `students/${studentId}/foto-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`
+}
+
 export async function queueImageUpload(
   fileOrBlob: Blob | File,
   key: string,
   firebaseDocInfo: QueueItem['firebaseDocInfo']
 ): Promise<string> {
-  // Compress image
   const options = {
     maxSizeMB: 0.5,
     maxWidthOrHeight: 1280,
-    useWebWorker: true,
+    useWebWorker: false,
   }
-  
-  const fileToCompress = fileOrBlob instanceof File ? fileOrBlob : new File([fileOrBlob], 'image.jpg', { type: fileOrBlob.type || 'image/jpeg' })
+
+  const bytes = new Uint8Array(await fileOrBlob.arrayBuffer())
+  const safeName = `${key.replace(/[^\w.-]+/g, '_')}.jpg`
+  const fileToCompress = new File([bytes], safeName, { type: fileOrBlob.type || 'image/jpeg' })
   const compressedFile = await imageCompression(fileToCompress, options)
 
   const id = crypto.randomUUID()

@@ -17,6 +17,7 @@ import {
 } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { formatClassName } from '@/lib/utils'
+import type { RosterSyncPlan } from '@/lib/rosterSync'
 import type { StudentFormData } from '@/types'
 
 /**
@@ -30,7 +31,11 @@ type BatchOp = {
   data?: Record<string, unknown>
 }
 
-type Member = { id: string; no: string; adSoyad: string; foto: string }
+type Member = { id: string; no: string; adSoyad: string; foto: string; cinsiyet: 'K' | 'E' | '' }
+
+function cinsiyetOf(value: unknown): 'K' | 'E' | '' {
+  return value === 'K' || value === 'E' ? value : ''
+}
 
 type CourseMeta = { id: string; teacherId: string; sinifAdi: string; createdAt: Date }
 
@@ -145,6 +150,7 @@ async function readMembers(rosterId: string): Promise<Member[]> {
     no: String(d.data().no ?? ''),
     adSoyad: String(d.data().adSoyad ?? ''),
     foto: String(d.data().foto ?? ''),
+    cinsiyet: cinsiyetOf(d.data().cinsiyet),
   }))
 }
 
@@ -153,6 +159,7 @@ function courseStudentFromMember(member: Member) {
     no: member.no,
     adSoyad: member.adSoyad,
     foto: member.foto,
+    cinsiyet: member.cinsiyet,
     rosterMemberId: member.id,
     pcNo: '',
     eskiPcNolari: [],
@@ -213,6 +220,7 @@ async function ensureClassRoster(teacherId: string, sinifAdi: string): Promise<R
           no: d.data().no ?? '',
           adSoyad: d.data().adSoyad ?? '',
           foto: d.data().foto ?? '',
+          cinsiyet: cinsiyetOf(d.data().cinsiyet),
           createdAt: d.data().createdAt ?? serverTimestamp(),
         },
       })),
@@ -248,6 +256,7 @@ async function fillCourseIfEmpty(courseId: string, sourceDocs: QueryDocumentSnap
       no: d.data().no ?? '',
       adSoyad: d.data().adSoyad ?? '',
       foto: d.data().foto ?? '',
+      cinsiyet: cinsiyetOf(d.data().cinsiyet),
       rosterMemberId: d.id,
       pcNo: '',
       eskiPcNolari: [],
@@ -315,11 +324,18 @@ export async function addSharedStudent(courseId: string, data: StudentFormData &
       ? doc(db, 'classRosters', info.rosterId, 'students', data.id)
       : doc(collection(db, 'classRosters', info.rosterId, 'students'))
     const memberId = memberRef.id
-    const member: Member = { id: memberId, no: data.no, adSoyad: data.adSoyad, foto: data.foto || '' }
+    const member: Member = {
+      id: memberId,
+      no: data.no,
+      adSoyad: data.adSoyad,
+      foto: data.foto || '',
+      cinsiyet: cinsiyetOf(data.cinsiyet),
+    }
     await setDoc(memberRef, {
       no: member.no,
       adSoyad: member.adSoyad,
       foto: member.foto,
+      cinsiyet: member.cinsiyet,
       createdAt: serverTimestamp(),
     })
 
@@ -396,6 +412,7 @@ export async function addSharedStudentsBulk(courseId: string, list: (StudentForm
         no: student.no,
         adSoyad: student.adSoyad,
         foto: student.foto || '',
+        cinsiyet: cinsiyetOf(student.cinsiyet),
       }
       ids.push(memberId)
       knownNos.add(no)
@@ -408,6 +425,7 @@ export async function addSharedStudentsBulk(courseId: string, list: (StudentForm
           no: member.no,
           adSoyad: member.adSoyad,
           foto: member.foto,
+          cinsiyet: member.cinsiyet,
           createdAt: serverTimestamp(),
         },
       })
@@ -440,6 +458,93 @@ export async function addSharedStudentsBulk(courseId: string, list: (StudentForm
   })
 }
 
+async function removeMemberEverywhere(meta: CourseMeta, memberId: string, noHint = '') {
+  const key = classRosterId(meta.teacherId, meta.sinifAdi)
+  await deleteDoc(doc(db, 'classRosters', key, 'students', memberId)).catch(() => undefined)
+
+  const courses = await siblingCourses(meta.teacherId, meta.sinifAdi)
+  if (!courses.some((course) => course.id === meta.id)) courses.push(meta)
+
+  const no = normNo(noHint)
+  const ops: BatchOp[] = []
+  for (const course of courses) {
+    const studs = await getDocs(collection(db, 'courses', course.id, 'students'))
+    for (const studentDoc of studs.docs) {
+      const row = studentDoc.data()
+      const linked =
+        studentDoc.id === memberId ||
+        row.rosterMemberId === memberId ||
+        (no && normNo(row.no) === no)
+      if (linked) ops.push({ type: 'delete', ref: studentDoc.ref })
+    }
+  }
+  await commitOps(ops)
+}
+
+async function patchMemberEverywhere(meta: CourseMeta, memberId: string, patch: Record<string, unknown>) {
+  if (Object.keys(patch).length === 0) return
+  const key = classRosterId(meta.teacherId, meta.sinifAdi)
+  const memberRef = doc(db, 'classRosters', key, 'students', memberId)
+  const memberSnap = await getDoc(memberRef)
+  const ops: BatchOp[] = []
+  if (memberSnap.exists()) ops.push({ type: 'update', ref: memberRef, data: patch })
+
+  const courses = await siblingCourses(meta.teacherId, meta.sinifAdi)
+  if (!courses.some((course) => course.id === meta.id)) courses.push(meta)
+
+  for (const course of courses) {
+    const studs = await getDocs(collection(db, 'courses', course.id, 'students'))
+    for (const studentDoc of studs.docs) {
+      const row = studentDoc.data()
+      if (studentDoc.id === memberId || row.rosterMemberId === memberId) {
+        ops.push({ type: 'update', ref: studentDoc.ref, data: patch })
+      }
+    }
+  }
+  await commitOps(ops)
+}
+
+export async function applyRosterSyncPlan(
+  courseId: string,
+  plan: RosterSyncPlan,
+  newStudents: (StudentFormData & { id?: string })[],
+) {
+  const meta = await loadCourse(courseId)
+  if (!meta?.teacherId || !meta.sinifAdi) {
+    for (const remove of plan.removes) {
+      await deleteDoc(doc(db, 'courses', courseId, 'students', remove.memberId)).catch(() => undefined)
+    }
+    for (const update of plan.updates) {
+      await updateDoc(doc(db, 'courses', courseId, 'students', update.memberId), {
+        adSoyad: update.nextAdSoyad,
+      }).catch(() => undefined)
+    }
+    if (newStudents.length) await addSharedStudentsBulk(courseId, newStudents)
+    return
+  }
+
+  const lockKey = classRosterId(meta.teacherId, meta.sinifAdi)
+  await withLock(lockKey, () => ensureClassRoster(meta.teacherId, meta.sinifAdi))
+
+  for (const remove of plan.removes) {
+    await withLock(lockKey, async () => {
+      const fresh = await loadCourse(courseId)
+      if (!fresh?.teacherId || !fresh.sinifAdi) return
+      await removeMemberEverywhere(fresh, remove.memberId, remove.no)
+    })
+  }
+  for (const update of plan.updates) {
+    await withLock(lockKey, async () => {
+      const fresh = await loadCourse(courseId)
+      if (!fresh?.teacherId || !fresh.sinifAdi) return
+      await patchMemberEverywhere(fresh, update.memberId, { adSoyad: update.nextAdSoyad })
+    })
+  }
+  if (newStudents.length) {
+    await addSharedStudentsBulk(courseId, newStudents)
+  }
+}
+
 export async function deleteSharedStudent(courseId: string, studentId: string) {
   const meta = await loadCourse(courseId)
   if (!meta?.teacherId || !meta.sinifAdi) {
@@ -447,38 +552,19 @@ export async function deleteSharedStudent(courseId: string, studentId: string) {
     return
   }
 
-  const key = classRosterId(meta.teacherId, meta.sinifAdi)
-  await withLock(key, async () => {
+  await withLock(classRosterId(meta.teacherId, meta.sinifAdi), async () => {
     const studentSnap = await getDoc(doc(db, 'courses', courseId, 'students', studentId))
     const data = studentSnap.data()
     const memberId = String(data?.rosterMemberId || studentId)
     const no = normNo(data?.no)
-
-    await deleteDoc(doc(db, 'classRosters', key, 'students', memberId)).catch(() => undefined)
-
-    const courses = await siblingCourses(meta.teacherId, meta.sinifAdi)
-    if (!courses.some((course) => course.id === courseId)) courses.push(meta)
-
-    const ops: BatchOp[] = []
-    for (const course of courses) {
-      const studs = await getDocs(collection(db, 'courses', course.id, 'students'))
-      for (const studentDoc of studs.docs) {
-        const row = studentDoc.data()
-        const linked =
-          studentDoc.id === memberId ||
-          row.rosterMemberId === memberId ||
-          (no && normNo(row.no) === no)
-        if (linked) ops.push({ type: 'delete', ref: studentDoc.ref })
-      }
-    }
-    await commitOps(ops)
+    await removeMemberEverywhere(meta, memberId, no)
   })
 }
 
 export async function fanOutStudentIdentity(
   courseId: string,
   studentId: string,
-  identity: { no?: string; adSoyad?: string; foto?: string },
+  identity: { no?: string; adSoyad?: string; foto?: string; cinsiyet?: 'K' | 'E' | '' },
 ) {
   const patch = Object.fromEntries(Object.entries(identity).filter(([, value]) => value !== undefined))
   if (Object.keys(patch).length === 0) return

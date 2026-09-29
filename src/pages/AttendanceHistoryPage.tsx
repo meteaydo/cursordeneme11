@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ClipboardList, Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react'
+import { Check, ClipboardList, Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent } from '@/components/ui/card'
@@ -14,7 +14,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
-import { normalizeTime, useAttendanceHistory, type AttendanceSessionSummary } from '@/hooks/useClassAttendance'
+import {
+  normalizeTime,
+  useAttendanceHistory,
+  useClassAttendance,
+  type AttendanceSessionSummary,
+} from '@/hooks/useClassAttendance'
+import { useStudents } from '@/hooks/useStudents'
+import { useApplications } from '@/hooks/useApplications'
+import type { ClassAttendanceMarks } from '@/types'
 import { useClassRoster, type ClassRosterRow } from '@/hooks/useClassRoster'
 import { OfflineImage } from '@/components/ui/OfflineImage'
 import { useCourses } from '@/hooks/useCourses'
@@ -30,6 +38,18 @@ function formatTrDate(iso: string) {
   const [y, m, d] = iso.split('-')
   if (!y || !m || !d) return iso
   return `${d}.${m}.${y}`
+}
+
+type ApplyAttendanceTarget = {
+  date: string
+  time: string
+  applicationId?: string
+}
+
+type HistoryLocationState = {
+  courseName?: string
+  className?: string
+  applyAttendanceTo?: ApplyAttendanceTarget
 }
 
 function formatDateHeading(iso: string) {
@@ -124,7 +144,21 @@ export default function AttendanceHistoryPage() {
   const [markPanel, setMarkPanel] = useState<MarkPanel | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [removingNo, setRemovingNo] = useState<string | null>(null)
-  const returnState = location.state
+  const [applyPick, setApplyPick] = useState<AttendanceSessionSummary | null>(null)
+  const [applying, setApplying] = useState(false)
+  const navState = location.state as HistoryLocationState | null
+  const returnState = navState
+  const applyTarget = navState?.applyAttendanceTo
+  const applyMode = searchParams.get('mod') === 'uygula' && Boolean(applyTarget?.date && applyTarget?.time)
+  const { students } = useStudents(applyMode && courseId ? courseId : '')
+  const { setScore } = useApplications(applyMode && courseId ? courseId : '')
+  const { replaceMarks, markEveryonePresent } = useClassAttendance(
+    sinifAdi,
+    applyTarget?.date ?? '',
+    applyTarget?.time ?? '',
+    bellSchedule,
+    courseId || undefined,
+  )
 
   const panelSession = useMemo(() => {
     if (!markPanel) return null
@@ -211,6 +245,54 @@ export default function AttendanceHistoryPage() {
     navigate(coursePath, { state: returnState })
   }
 
+  const syncMarksToApplication = async (marks: ClassAttendanceMarks, applicationId: string) => {
+    await Promise.all(
+      students.map((student) => {
+        const mark = student.no ? marks[student.no] : undefined
+        const fields =
+          mark === 'D'
+            ? { devamsiz: true, gec: false }
+            : mark === 'G'
+              ? { devamsiz: false, gec: true }
+              : { devamsiz: false, gec: false }
+        return setScore(applicationId, student.id, fields)
+      }),
+    )
+  }
+
+  const confirmApplyFromHistory = async () => {
+    if (!applyPick || !applyTarget || !courseId) return
+    setApplying(true)
+    try {
+      const marks = { ...applyPick.marks }
+      if (applyPick.dCount + applyPick.gCount === 0 && applyPick.herkesGeldi) {
+        await markEveryonePresent()
+        if (applyTarget.applicationId) {
+          await syncMarksToApplication({}, applyTarget.applicationId)
+        }
+      } else {
+        await replaceMarks(marks)
+        if (applyTarget.applicationId) {
+          await syncMarksToApplication(marks, applyTarget.applicationId)
+        }
+      }
+      const params = new URLSearchParams({
+        tarih: applyTarget.date,
+        saat: normalizeTime(applyTarget.time),
+      })
+      toast({ title: 'Yoklama uygulandı' })
+      setApplyPick(null)
+      navigate(`${coursePath}?${params.toString()}`, {
+        replace: true,
+        state: { courseName: navState?.courseName, className: navState?.className },
+      })
+    } catch {
+      toast({ title: 'Yoklama uygulanamadı', variant: 'destructive' })
+    } finally {
+      setApplying(false)
+    }
+  }
+
   const confirmDelete = async () => {
     if (!deleteTarget) return
     setDeleting(true)
@@ -226,8 +308,22 @@ export default function AttendanceHistoryPage() {
   }
 
   return (
-    <Layout title={`${sinifAdi} yoklamaları`} showBack backTo={coursePath} backTitle="Ders">
+    <Layout
+      title={applyMode ? 'Geçmişten yoklama seç' : `${sinifAdi} yoklamaları`}
+      showBack
+      backTo={coursePath}
+      backTitle="Ders"
+    >
       <div className="space-y-6 pb-32">
+        {applyMode && applyTarget ? (
+          <p className="text-xs text-center text-muted-foreground leading-snug px-2">
+            Bir kayda dokunun;{' '}
+            <span className="text-foreground font-medium">
+              {formatTrDate(applyTarget.date)} · {normalizeTime(applyTarget.time)}
+            </span>{' '}
+            yoklamasına uygulanır.
+          </p>
+        ) : null}
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
@@ -262,7 +358,27 @@ export default function AttendanceHistoryPage() {
                 return (
                 <Card
                   key={s.key}
-                  className={`border-l-4 ${getClassColor(s.sinifAdi)}`}
+                  role={applyMode ? 'button' : undefined}
+                  tabIndex={applyMode ? 0 : undefined}
+                  onClick={
+                    applyMode
+                      ? () => setApplyPick(s)
+                      : undefined
+                  }
+                  onKeyDown={
+                    applyMode
+                      ? (e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault()
+                            setApplyPick(s)
+                          }
+                        }
+                      : undefined
+                  }
+                  className={cn(
+                    `border-l-4 ${getClassColor(s.sinifAdi)}`,
+                    applyMode && 'cursor-pointer hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  )}
                 >
                   <CardContent className="p-4 flex items-center justify-between gap-3">
                     <div className="min-w-0 flex-1">
@@ -294,7 +410,10 @@ export default function AttendanceHistoryPage() {
                         <button
                           type="button"
                           className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          onClick={() => setMarkPanel({ session: s, mark: 'D' })}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setMarkPanel({ session: s, mark: 'D' })
+                          }}
                         >
                           <Badge
                             variant="secondary"
@@ -309,7 +428,10 @@ export default function AttendanceHistoryPage() {
                         <button
                           type="button"
                           className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                          onClick={() => setMarkPanel({ session: s, mark: 'G' })}
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setMarkPanel({ session: s, mark: 'G' })
+                          }}
                         >
                           <Badge
                             variant="secondary"
@@ -326,26 +448,44 @@ export default function AttendanceHistoryPage() {
                       </div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-9 w-9 text-muted-foreground hover:text-foreground"
-                        aria-label="Yoklamayı düzenle"
-                        onClick={() => openSession(s)}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="icon"
-                        className="h-9 w-9 text-muted-foreground hover:text-destructive"
-                        aria-label="Yoklamayı sil"
-                        onClick={() => setDeleteTarget(s)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      {applyMode ? (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="icon"
+                          className="h-9 w-9 text-primary"
+                          aria-label="Bu yoklamayı uygula"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setApplyPick(s)
+                          }}
+                        >
+                          <Check className="h-4 w-4" />
+                        </Button>
+                      ) : (
+                        <>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 text-muted-foreground hover:text-foreground"
+                            aria-label="Yoklamayı düzenle"
+                            onClick={() => openSession(s)}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-9 w-9 text-muted-foreground hover:text-destructive"
+                            aria-label="Yoklamayı sil"
+                            onClick={() => setDeleteTarget(s)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </>
+                      )}
                     </div>
                   </CardContent>
                 </Card>
@@ -438,14 +578,37 @@ export default function AttendanceHistoryPage() {
         </DialogContent>
       </Dialog>
 
-      <button
-        type="button"
-        onClick={startNewAttendance}
-        className="fixed bottom-28 right-4 md:right-8 w-14 h-14 rounded-full transition-all duration-200 z-[110] bg-gradient-to-b from-blue-400 to-blue-600 text-white border-t border-blue-300/50 shadow-[inset_0_-4px_6px_rgba(0,0,0,0.3),inset_0_2px_4px_rgba(255,255,255,0.3),0_6px_12px_rgba(37,99,235,0.4)] hover:from-blue-400 hover:to-blue-500 hover:-translate-y-0.5 active:translate-y-1 active:shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),0_2px_4px_rgba(37,99,235,0.4)] active:from-blue-500 active:to-blue-600 flex items-center justify-center"
-        aria-label="Yeni yoklama"
-      >
-        <Plus size={28} strokeWidth={2.5} className="drop-shadow-md" />
-      </button>
+      {!applyMode ? (
+        <button
+          type="button"
+          onClick={startNewAttendance}
+          className="fixed bottom-28 right-4 md:right-8 w-14 h-14 rounded-full transition-all duration-200 z-[110] bg-gradient-to-b from-blue-400 to-blue-600 text-white border-t border-blue-300/50 shadow-[inset_0_-4px_6px_rgba(0,0,0,0.3),inset_0_2px_4px_rgba(255,255,255,0.3),0_6px_12px_rgba(37,99,235,0.4)] hover:from-blue-400 hover:to-blue-500 hover:-translate-y-0.5 active:translate-y-1 active:shadow-[inset_0_2px_6px_rgba(0,0,0,0.4),0_2px_4px_rgba(37,99,235,0.4)] active:from-blue-500 active:to-blue-600 flex items-center justify-center"
+          aria-label="Yeni yoklama"
+        >
+          <Plus size={28} strokeWidth={2.5} className="drop-shadow-md" />
+        </button>
+      ) : null}
+
+      <ConfirmDialog
+        open={!!applyPick}
+        onOpenChange={(open) => !open && !applying && setApplyPick(null)}
+        title="Yoklamayı uygula"
+        description={
+          applyPick && applyTarget
+            ? `${formatTrDate(applyPick.date)}${
+                applyPick.lessonPeriod != null ? ` · ${applyPick.lessonPeriod}. ders` : ''
+              } · ${applyPick.time} kaydı, ${formatTrDate(applyTarget.date)} · ${normalizeTime(applyTarget.time)} yoklamasına uygulanacak.${
+                applyPick.dCount + applyPick.gCount === 0 && applyPick.herkesGeldi
+                  ? ' (Herkes geldi)'
+                  : applyPick.dCount + applyPick.gCount > 0
+                    ? ` (${applyPick.dCount} D · ${applyPick.gCount} G)`
+                    : ''
+              }`
+            : undefined
+        }
+        confirmText={applying ? 'Uygulanıyor…' : 'Uygula'}
+        onConfirm={() => void confirmApplyFromHistory()}
+      />
 
       <ConfirmDialog
         open={!!deleteTarget}

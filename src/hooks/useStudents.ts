@@ -21,6 +21,7 @@ import {
   deleteSharedStudent,
   fanOutStudentIdentity,
   syncCourseWithRoster,
+  applyRosterSyncPlan,
 } from '@/services/classRosterService'
 
 export function useStudents(courseId: string) {
@@ -128,9 +129,10 @@ export function useStudents(courseId: string) {
     await batch.commit().catch(console.error);
 
     const current = students.find((s) => s.id === studentId)
-    const identity: { no?: string; adSoyad?: string; foto?: string } = {}
+    const identity: { no?: string; adSoyad?: string; foto?: string; cinsiyet?: 'K' | 'E' | '' } = {}
     if (data.no !== undefined && data.no !== current?.no) identity.no = data.no
     if (data.adSoyad !== undefined && data.adSoyad !== current?.adSoyad) identity.adSoyad = data.adSoyad
+    if (data.cinsiyet !== undefined && (data.cinsiyet || '') !== (current?.cinsiyet || '')) identity.cinsiyet = data.cinsiyet
     if (
       data.foto !== undefined &&
       !String(data.foto).startsWith('blob:') &&
@@ -203,5 +205,21 @@ export function useStudents(courseId: string) {
     await deleteSharedStudent(courseId, studentId)
   }
 
-  return { students, loading, addStudent, addStudentsBulk, updateStudent, addBehaviorStar, deleteBehaviorLog, updateBehaviorLog, deleteStudent }
+  const applyRosterSync = async (
+    plan: Parameters<typeof applyRosterSyncPlan>[1],
+    newStudents: (StudentFormData & { id?: string })[],
+  ) => applyRosterSyncPlan(courseId, plan, newStudents)
+
+  return {
+    students,
+    loading,
+    addStudent,
+    addStudentsBulk,
+    updateStudent,
+    addBehaviorStar,
+    deleteBehaviorLog,
+    updateBehaviorLog,
+    deleteStudent,
+    applyRosterSync,
+  }
 }

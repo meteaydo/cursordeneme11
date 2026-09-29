@@ -790,7 +790,7 @@ export default function TimetableEditorPage() {
           >
             <thead>
               <tr>
-                <th className="sticky left-0 z-10 w-9 bg-background border px-0.5 py-1.5 text-left text-[11px] font-medium sm:w-10 sm:p-1.5 sm:text-xs">
+                <th className="sticky left-0 z-10 w-9 bg-background border px-0.5 py-1.5 text-center text-[11px] font-medium sm:w-10 sm:p-1.5 sm:text-xs">
                   Saat
                 </th>
                 {TIMETABLE_DAYS.map((day) => (
@@ -804,7 +804,7 @@ export default function TimetableEditorPage() {
               {slots.map((slot) =>
                 slot.kind === 'lunch' ? (
                   <tr key="lunch" className="h-7">
-                    <td className="sticky left-0 z-10 bg-amber-50 border px-0.5 py-0.5 text-amber-900 text-[11px] font-medium leading-none">
+                    <td className="sticky left-0 z-10 bg-amber-50 border px-0.5 py-0.5 text-center text-amber-900 text-[11px] font-medium leading-none">
                       Öğle
                     </td>
                     <td
@@ -818,7 +818,7 @@ export default function TimetableEditorPage() {
                   </tr>
                 ) : (
                   <tr key={slot.period}>
-                    <td className="sticky left-0 z-10 border px-0.5 py-1 bg-background">
+                    <td className="sticky left-0 z-10 border px-0.5 py-1 bg-background text-center">
                       <div className="font-medium">{slot.period}</div>
                       <div className="text-[9px] leading-[1.15] text-muted-foreground tabular-nums sm:text-[10px]">
                         <div>{slot.start}</div>

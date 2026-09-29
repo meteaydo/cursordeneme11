@@ -41,6 +41,38 @@ const CLASS_COLOR_ORDER = [
   '9C', '10C', '11C', '12C', '9D', '10D', '11D', '12D',
 ]
 
+function GenderCountIcons({ kiz, erkek }: { kiz: number; erkek: number }) {
+  if (kiz === 0 && erkek === 0) return null
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      {kiz > 0 && (
+        <span
+          className="inline-flex items-center gap-0.5 text-[10px] font-bold tabular-nums text-pink-600"
+          title={`${kiz} kız`}
+          aria-label={`${kiz} kız`}
+        >
+          <span className="text-[11px] leading-none" aria-hidden>
+            ♀
+          </span>
+          {kiz}
+        </span>
+      )}
+      {erkek > 0 && (
+        <span
+          className="inline-flex items-center gap-0.5 text-[10px] font-bold tabular-nums text-sky-700"
+          title={`${erkek} erkek`}
+          aria-label={`${erkek} erkek`}
+        >
+          <span className="text-[11px] leading-none" aria-hidden>
+            ♂
+          </span>
+          {erkek}
+        </span>
+      )}
+    </span>
+  )
+}
+
 const getClassColor = (className: string) => {
   const key = className.toUpperCase().replace(/[^0-9A-Z]/g, '')
   const index = CLASS_COLOR_ORDER.indexOf(key)
@@ -198,11 +230,17 @@ export default function CoursesPage() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-base truncate">{course.dersAdi} - {course.sinifAdi}</h3>
-                      <div className="flex flex-wrap gap-2 mt-2">
-                        <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
-                          <Users className="mr-1 h-3 w-3" />
-                          {stats[course.id]?.studentCount || 0} öğrenci
-                        </Badge>
+                      <div className="flex flex-wrap items-center gap-2 mt-2">
+                        <div className="inline-flex items-center gap-1.5">
+                          <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
+                            <Users className="mr-1 h-3 w-3" />
+                            {stats[course.id]?.studentCount || 0} öğrenci
+                          </Badge>
+                          <GenderCountIcons
+                            kiz={stats[course.id]?.kizCount ?? 0}
+                            erkek={stats[course.id]?.erkekCount ?? 0}
+                          />
+                        </div>
                         <Badge variant="secondary" className="text-[10px] h-5 px-1.5">
                           <FileText className="mr-1 h-3 w-3" />
                           {stats[course.id]?.appCount || 0} uygulama

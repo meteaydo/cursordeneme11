@@ -15,7 +15,7 @@ import { useStudents } from '@/hooks/useStudents'
 import { useApplications } from '@/hooks/useApplications'
 import { useCourses } from '@/hooks/useCourses'
 import { useAutoSave } from '@/hooks/useAutoSave'
-import { queueImageUpload } from '@/lib/imageQueue'
+import { queueImageUpload, studentFotoKey } from '@/lib/imageQueue'
 import { OfflineImage } from '@/components/ui/OfflineImage'
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 import { format } from 'date-fns'
@@ -213,6 +213,7 @@ export default function StudentProfilePage() {
         bepPlaniYapildi: student.bepPlaniYapildi ?? false,
         mebBilgiFormu: student.mebBilgiFormu ?? {},
         foto: student.foto ?? '',
+        cinsiyet: student.cinsiyet === 'K' || student.cinsiyet === 'E' ? student.cinsiyet : '',
       })
       setLocalPcNo(student.pcNo || '')
     }
@@ -385,7 +386,7 @@ export default function StudentProfilePage() {
     setForm((prev) => prev ? { ...prev, foto: tempUrl } : null)
 
     try {
-      const key = `students/${sId}/foto.jpg`
+      const key = studentFotoKey(sId)
       const localUrl = await queueImageUpload(fileOrBlob, key, {
         collection: `courses/${cId}/students`,
         docId: sId,
@@ -617,6 +618,29 @@ export default function StudentProfilePage() {
                 <Pencil className="h-3 w-3 opacity-0 group-hover:opacity-100 transition-opacity" />
               </div>
             )}
+
+            <div className="mt-1 flex items-center justify-center gap-1.5" role="group" aria-label="Cinsiyet">
+              {([
+                ['K', 'Kız'],
+                ['E', 'Erkek'],
+              ] as const).map(([value, label]) => {
+                const active = form.cinsiyet === value
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setForm({ ...form, cinsiyet: active ? '' : value })}
+                    className={`h-7 rounded-full border px-3 text-xs font-semibold transition-colors ${
+                      active
+                        ? 'border-primary bg-primary text-white'
+                        : 'border-input bg-background text-muted-foreground hover:bg-accent'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                )
+              })}
+            </div>
 
           </div>
         </div>

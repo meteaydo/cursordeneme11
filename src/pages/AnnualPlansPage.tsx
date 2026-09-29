@@ -7,8 +7,10 @@ import { Card, CardContent } from '@/components/ui/card'
 import { ConfirmDialog } from '@/components/ui/confirm-dialog'
 import { AnnualPlanBanner } from '@/components/AnnualPlanBanner'
 import { useCourses } from '@/hooks/useCourses'
+import { pickTimetableId, timetableToBellSchedule, useTimetables } from '@/hooks/useTimetables'
 import { db } from '@/lib/firebase'
 import { parseAnnualPlanDocx, findPlanItemForDate, formatPlanRange } from '@/lib/annualPlanParser'
+import { findCourseForNowOrNextLesson } from '@/lib/timetableCourseMatch'
 import { toast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
 import type { AnnualPlan } from '@/types'
@@ -21,7 +23,10 @@ const planAddButtonClass =
 export default function AnnualPlansPage() {
   const navigate = useNavigate()
   const { courses, loading, updateCourse } = useCourses()
+  const { items: timetables, loading: timetablesLoading } = useTimetables()
   const fileRef = useRef<HTMLInputElement>(null)
+  const weekRowRefs = useRef<Map<number, HTMLButtonElement>>(new Map())
+  const pendingWeekScroll = useRef(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [weekIndex, setWeekIndex] = useState(0)
   const [parsing, setParsing] = useState(false)
@@ -42,15 +47,39 @@ export default function AnnualPlansPage() {
     [courses],
   )
 
+  const activeTimetable = useMemo(() => {
+    const id = pickTimetableId(timetables)
+    return timetables.find((t) => t.id === id) ?? timetables[0] ?? null
+  }, [timetables])
+
+  const lessonCourseId = useMemo(() => {
+    if (!activeTimetable || !sortedCourses.length) return null
+    const match = findCourseForNowOrNextLesson(
+      sortedCourses,
+      activeTimetable.cells ?? {},
+      timetableToBellSchedule(activeTimetable),
+    )
+    return match?.id ?? null
+  }, [activeTimetable, sortedCourses])
+
   useEffect(() => {
     if (!sortedCourses.length) {
       setSelectedId(null)
       return
     }
     if (selectedId && sortedCourses.some((c) => c.id === selectedId)) return
+    if (timetablesLoading) return
+
+    if (lessonCourseId && sortedCourses.some((c) => c.id === lessonCourseId)) {
+      setSelectedId(lessonCourseId)
+      pendingWeekScroll.current = true
+      return
+    }
+
     const withPlan = sortedCourses.find((c) => c.annualPlan?.items.length)
     setSelectedId((withPlan ?? sortedCourses[0]).id)
-  }, [sortedCourses, selectedId])
+    pendingWeekScroll.current = true
+  }, [sortedCourses, selectedId, timetablesLoading, lessonCourseId])
 
   const selected = sortedCourses.find((c) => c.id === selectedId)
   const plan = selected?.annualPlan
@@ -67,7 +96,18 @@ export default function AnnualPlansPage() {
 
   useEffect(() => {
     setWeekIndex(todayIndex)
+    pendingWeekScroll.current = true
   }, [selectedId, todayIndex])
+
+  useEffect(() => {
+    if (!pendingWeekScroll.current || loading || !items.length) return
+    const row = weekRowRefs.current.get(weekIndex)
+    if (!row) return
+    pendingWeekScroll.current = false
+    requestAnimationFrame(() => {
+      row.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    })
+  }, [loading, items.length, weekIndex, selectedId])
 
   const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -181,7 +221,10 @@ export default function AnnualPlansPage() {
                     <button
                       key={course.id}
                       type="button"
-                      onClick={() => setSelectedId(course.id)}
+                      onClick={() => {
+                        pendingWeekScroll.current = true
+                        setSelectedId(course.id)
+                      }}
                       onContextMenu={(e) => openPlanContextMenu(e, course.id, hasPlan)}
                       className={cn(
                         'shrink-0 text-left px-3 py-2 rounded-xl border text-sm transition-all',
@@ -220,6 +263,10 @@ export default function AnnualPlansPage() {
                 {items.map((row, i) => (
                   <button
                     key={`${row.hafta}-${row.tarihBas}`}
+                    ref={(el) => {
+                      if (el) weekRowRefs.current.set(i, el)
+                      else weekRowRefs.current.delete(i)
+                    }}
                     type="button"
                     onClick={() => setWeekIndex(i)}
                     className={cn(

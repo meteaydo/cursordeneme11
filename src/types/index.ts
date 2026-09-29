@@ -60,6 +60,8 @@ export interface Student {
   foto?: string
   no: string
   adSoyad: string
+  /** Kız veya Erkek. Boş bırakılabilir. */
+  cinsiyet?: 'K' | 'E' | ''
   pcNo: string
   eskiPcNolari: string[]
   ozelDurumNotlari: string
@@ -182,6 +184,7 @@ export interface ClassStudent {
 export interface StudentFormData {
   no: string
   adSoyad: string
+  cinsiyet?: 'K' | 'E' | ''
   pcNo: string
   eskiPcNolari: string[]
   ozelDurumNotlari: string
