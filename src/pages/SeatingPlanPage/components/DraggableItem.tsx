@@ -41,6 +41,8 @@ interface DraggableItemProps {
   onRemove?: (id: string) => void
   dimmed?: boolean
   ghost?: boolean
+  isNewOnPlan?: boolean
+  onDismissNewHighlight?: () => void
 }
 
 export function DraggableItem({
@@ -50,6 +52,8 @@ export function DraggableItem({
   activeApplicationId, score, attendanceMark, onNumpadOpen, onDevamsizToggle, onGecToggle, onCameraOpen, onFileUpload,
   dimmed,
   ghost,
+  isNewOnPlan,
+  onDismissNewHighlight,
 }: DraggableItemProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number } | null>(null)
@@ -134,6 +138,9 @@ export function DraggableItem({
     }
     if (e.pointerType === 'mouse' && e.button !== 0) {
       return
+    }
+    if (isNewOnPlan && item.type === 'student') {
+      onDismissNewHighlight?.()
     }
     clickStartRef.current = {
       x: e.clientX,
@@ -263,6 +270,7 @@ export function DraggableItem({
             attendanceMark={attendanceMark}
             onRemove={onRemove}
             pcLabelSide={pcLabelSide}
+            isNewOnPlan={isNewOnPlan}
           />
         </div>
       </div>
@@ -410,9 +418,10 @@ interface SmallCardProps {
   attendanceMark?: AttendanceMark
   onRemove?: (id: string) => void
   pcLabelSide?: 'left' | 'right' | 'bottom'
+  isNewOnPlan?: boolean
 }
 
-function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, hasActiveApp, score, attendanceMark, onRemove }: SmallCardProps) {
+function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, hasActiveApp, score, attendanceMark, onRemove, isNewOnPlan }: SmallCardProps) {
   if (item.type === 'student' && student) {
     const isDevamsiz = attendanceMark === 'D'
     const isGec = attendanceMark === 'G'
@@ -421,11 +430,20 @@ function SmallCard({ item, student, isExpanded, isSelectionMode, isSelected, has
 
     return (
       <div className="inset-0 w-[70px] h-[70px] group absolute">
-        <div className={`w-full h-full bg-background overflow-hidden relative shadow-sm transition-all duration-200 border border-slate-200/80 rounded-2xl ${
+        <div className={`w-full h-full bg-background overflow-hidden relative shadow-sm transition-all duration-200 border rounded-2xl ${
+          isNewOnPlan
+            ? 'border-amber-400 ring-4 ring-amber-400/90 shadow-lg shadow-amber-200/80 animate-pulse'
+            : 'border-slate-200/80'
+        } ${
           hasPuan ? 'opacity-60 grayscale' : ''
         } ${
           isExpanded ? 'ring-2 ring-primary/60 shadow-lg scale-95' : ''
-        } ${isSelected ? 'ring-4 ring-primary shadow-xl scale-95' : (isSelectionMode ? 'opacity-80 scale-95' : 'hover:ring-2 hover:ring-primary/50')}`}>
+        } ${isSelected ? 'ring-4 ring-primary shadow-xl scale-95' : (isSelectionMode ? 'opacity-80 scale-95' : isNewOnPlan ? '' : 'hover:ring-2 hover:ring-primary/50')}`}>
+          {isNewOnPlan && (
+            <div className="absolute top-0.5 right-0.5 z-30 rounded-md bg-amber-500 px-1 py-px text-[7px] font-black uppercase tracking-wide text-white shadow-sm">
+              Yeni
+            </div>
+          )}
           {student.foto ? (
             <OfflineImage src={student.foto} alt={student.adSoyad} className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-300" />
           ) : (

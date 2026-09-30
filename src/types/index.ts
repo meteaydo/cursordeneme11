@@ -69,6 +69,12 @@ export interface Student {
   bep?: boolean
   bepNotu?: string
   bepPlaniYapildi?: boolean
+  klubBilgisi?: string
+  projeDersAdi?: string
+  projeKonu?: string
+  projeTeslimTarihi?: string
+  projeTeslimEdildi?: boolean
+  projeNotu?: string
   mebBilgiFormu?: MebOgrenciBilgiFormu
   behaviorStars?: { yellow: number; purple: number }
   behaviorLogs?: BehaviorLog[]
@@ -192,6 +198,12 @@ export interface StudentFormData {
   bep?: boolean
   bepNotu?: string
   bepPlaniYapildi?: boolean
+  klubBilgisi?: string
+  projeDersAdi?: string
+  projeKonu?: string
+  projeTeslimTarihi?: string
+  projeTeslimEdildi?: boolean
+  projeNotu?: string
   mebBilgiFormu?: MebOgrenciBilgiFormu
   foto?: string
   behaviorStars?: { yellow: number; purple: number }

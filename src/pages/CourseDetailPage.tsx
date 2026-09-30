@@ -41,7 +41,14 @@ import {
   rosterSyncIsEmpty,
   type RosterSyncPlan,
 } from '@/lib/rosterSync'
-import { parseClassExcelFile, parseClassTemplate, fetchClassList, gradesFromClassNames } from '@/services/classTemplateService'
+import {
+  parseClassExcelFile,
+  parseClassTemplate,
+  fetchClassList,
+  gradesFromClassNames,
+  normalizeClassTemplateKey,
+  sectionsForGrade,
+} from '@/services/classTemplateService'
 import { LessonSlotHeader } from '@/components/LessonSlotHeader'
 import { TimeInput24 } from '@/components/ui/time-input-24'
 import { attendanceScoreFields, useCourseLessonSlot, visibleAttendanceMark } from '@/hooks/useCourseLessonSlot'
@@ -311,18 +318,26 @@ export default function CourseDetailPage() {
   const sharedRosterToasted = useRef(false)
 
   // Hazır liste yükleme state'leri
+  const [classList, setClassList] = useState<string[]>([])
   const [grades, setGrades] = useState<string[]>([])
-  const [sections, setSections] = useState<string[]>([])
   const [selGrade, setSelGrade] = useState('')
   const [selSection, setSelSection] = useState('')
 
   useEffect(() => {
-    fetchClassList().then(list => {
-      const s = Array.from(new Set(list.map(c => c.match(/[A-Z]+$/)?.[0]).filter(Boolean))) as string[]
+    fetchClassList().then((list) => {
+      setClassList(list)
       setGrades(gradesFromClassNames(list))
-      setSections(s.sort())
     })
   }, [])
+
+  const sections = useMemo(
+    () => (selGrade ? sectionsForGrade(classList, selGrade) : []),
+    [classList, selGrade],
+  )
+
+  useEffect(() => {
+    if (selSection && !sections.includes(selSection)) setSelSection('')
+  }, [sections, selSection])
 
   useEffect(() => {
     return () => {
@@ -1986,7 +2001,7 @@ export default function CourseDetailPage() {
                 <Button 
                   className="w-full" 
                   disabled={!selGrade || !selSection || excelParsing}
-                  onClick={() => loadTemplate(selGrade + selSection)}
+                  onClick={() => loadTemplate(normalizeClassTemplateKey(selGrade + selSection))}
                 >
                   {excelParsing ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />

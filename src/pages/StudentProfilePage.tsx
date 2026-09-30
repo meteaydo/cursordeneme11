@@ -211,6 +211,12 @@ export default function StudentProfilePage() {
         bep: student.bep ?? false,
         bepNotu: student.bepNotu ?? '',
         bepPlaniYapildi: student.bepPlaniYapildi ?? false,
+        klubBilgisi: student.klubBilgisi ?? '',
+        projeDersAdi: student.projeDersAdi ?? '',
+        projeKonu: student.projeKonu ?? '',
+        projeTeslimTarihi: student.projeTeslimTarihi ?? '',
+        projeTeslimEdildi: student.projeTeslimEdildi ?? false,
+        projeNotu: student.projeNotu ?? '',
         mebBilgiFormu: student.mebBilgiFormu ?? {},
         foto: student.foto ?? '',
         cinsiyet: student.cinsiyet === 'K' || student.cinsiyet === 'E' ? student.cinsiyet : '',
@@ -948,6 +954,74 @@ export default function StudentProfilePage() {
                 />
                 <span className="text-sm whitespace-nowrap">Planı Yapıldı</span>
               </label>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-emerald-400/70 border-2 bg-emerald-50/10 shadow-md">
+          <CardContent className="p-4 space-y-1.5">
+            <Label>Klüp bilgisi</Label>
+            <Textarea
+              value={form.klubBilgisi ?? ''}
+              onChange={(e) => setForm({ ...form, klubBilgisi: e.target.value })}
+              placeholder="Klüp adı, gün/saat, sorumlu öğretmen..."
+              rows={2}
+              className="text-sm min-h-[4rem]"
+            />
+          </CardContent>
+        </Card>
+
+        <Card className="border-sky-400/70 border-2 bg-sky-50/10 shadow-md">
+          <CardContent className="p-4 space-y-3">
+            <Label>Proje ödevi</Label>
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <span className="text-xs text-muted-foreground">Ders adı</span>
+                <Input
+                  value={form.projeDersAdi ?? ''}
+                  onChange={(e) => setForm({ ...form, projeDersAdi: e.target.value })}
+                  placeholder={course?.dersAdi || 'Ders adı'}
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="space-y-1">
+                <span className="text-xs text-muted-foreground">Konu</span>
+                <Input
+                  value={form.projeKonu ?? ''}
+                  onChange={(e) => setForm({ ...form, projeKonu: e.target.value })}
+                  placeholder="Proje konusu"
+                  className="h-8 text-sm"
+                />
+              </div>
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="space-y-1 flex-1 min-w-[140px]">
+                  <span className="text-xs text-muted-foreground">Teslim tarihi</span>
+                  <Input
+                    type="date"
+                    value={form.projeTeslimTarihi ?? ''}
+                    onChange={(e) => setForm({ ...form, projeTeslimTarihi: e.target.value })}
+                    className="h-8 text-sm"
+                  />
+                </div>
+                <label className="flex items-center gap-1.5 cursor-pointer pb-1 shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={form.projeTeslimEdildi ?? false}
+                    onChange={(e) => setForm({ ...form, projeTeslimEdildi: e.target.checked })}
+                    className="w-4 h-4 rounded border-border accent-primary"
+                  />
+                  <span className="text-sm whitespace-nowrap">Teslim edildi</span>
+                </label>
+              </div>
+              <div className="space-y-1">
+                <span className="text-xs text-muted-foreground">Proje notu</span>
+                <Input
+                  value={form.projeNotu ?? ''}
+                  onChange={(e) => setForm({ ...form, projeNotu: e.target.value })}
+                  placeholder="Not veya açıklama"
+                  className="h-8 text-sm"
+                />
+              </div>
             </div>
           </CardContent>
         </Card>

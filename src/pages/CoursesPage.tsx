@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Search, BookOpen, Users, Trash2, Loader2, FileText } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
@@ -14,7 +14,13 @@ import { useCourses } from '@/hooks/useCourses'
 import { useCourseStats } from '@/hooks/useCourseStats'
 import type { CourseFormData } from '@/types'
 import { formatTitleCase, formatClassName } from '@/lib/utils'
-import { fetchClassList, gradesFromClassNames } from '@/services/classTemplateService'
+import {
+  classListIncludes,
+  fetchClassList,
+  gradesFromClassNames,
+  normalizeClassTemplateKey,
+  sectionsForGrade,
+} from '@/services/classTemplateService'
 
 
 const CLASS_COLORS = [
@@ -105,25 +111,35 @@ export default function CoursesPage() {
 
   const [classList, setClassList] = useState<string[]>([])
   const [grades, setGrades] = useState<string[]>([])
-  const [sections, setSections] = useState<string[]>([])
   const [isManualClass, setIsManualClass] = useState(false)
 
   const [selGrade, setSelGrade] = useState('')
   const [selSection, setSelSection] = useState('')
 
-  useEffect(() => {
-    fetchClassList().then(list => {
+  const loadClassTemplates = () => {
+    fetchClassList().then((list) => {
       setClassList(list)
-      const s = Array.from(new Set(list.map(c => c.match(/[A-Z]+$/)?.[0]).filter(Boolean))) as string[]
       setGrades(gradesFromClassNames(list))
-      setSections(s.sort())
     })
+  }
+
+  useEffect(() => {
+    loadClassTemplates()
   }, [])
+
+  const sections = useMemo(
+    () => (selGrade ? sectionsForGrade(classList, selGrade) : []),
+    [classList, selGrade],
+  )
+
+  useEffect(() => {
+    if (selSection && !sections.includes(selSection)) setSelSection('')
+  }, [sections, selSection])
 
   // Grade veya Section değişince form'u güncelle
   useEffect(() => {
     if (!isManualClass && selGrade && selSection) {
-      setForm(prev => ({ ...prev, sinifAdi: selGrade + selSection }))
+      setForm(prev => ({ ...prev, sinifAdi: normalizeClassTemplateKey(selGrade + selSection) }))
     }
   }, [selGrade, selSection, isManualClass])
 
@@ -160,9 +176,13 @@ export default function CoursesPage() {
         navigate(`/courses/${courseId}`, {
           state: { courseName: form.dersAdi, className: form.sinifAdi, sharedRoster: true },
         })
-      } else if (courseId && !isManualClass && classList.includes(form.sinifAdi)) {
+      } else if (courseId && !isManualClass && classListIncludes(classList, form.sinifAdi)) {
         navigate(`/courses/${courseId}`, {
-          state: { courseName: form.dersAdi, className: form.sinifAdi, fromTemplate: true },
+          state: {
+            courseName: form.dersAdi,
+            className: normalizeClassTemplateKey(form.sinifAdi),
+            fromTemplate: true,
+          },
         })
       }
       setForm(EMPTY_FORM)
@@ -271,7 +291,13 @@ export default function CoursesPage() {
         <Plus size={28} strokeWidth={2.5} className="drop-shadow-md" />
       </button>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={(next) => {
+          setOpen(next)
+          if (next) loadClassTemplates()
+        }}
+      >
         <DialogContent className="sm:top-10 sm:translate-y-0">
           <DialogHeader>
             <DialogTitle>Yeni Ders Ekle</DialogTitle>

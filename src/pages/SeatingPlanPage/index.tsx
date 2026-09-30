@@ -26,7 +26,7 @@ import { useStudents } from '@/hooks/useStudents'
 import { useApplications } from '@/hooks/useApplications'
 import { queueImageUpload } from '@/lib/imageQueue'
 import { toast } from '@/hooks/use-toast'
-import type { AttendanceMark, SeatObject, Score, SharedSeatingPlan } from '@/types'
+import type { AttendanceMark, SeatObject, Score, SharedSeatingPlan, Student } from '@/types'
 import { DraggableItem } from './components/DraggableItem'
 import { SharedLayoutsDialog } from './components/SharedLayoutsDialog'
 import { SeatingPlanPreviewDialog } from './components/SeatingPlanPreviewDialog'
@@ -93,6 +93,31 @@ function marqueeHitsObject(obj: SeatObject, box: ReturnType<typeof normalizeMarq
   if (obj.type === 'pc_label') return false
   const { w, h } = getObjectSize(obj.type)
   return obj.x < box.x1 && obj.x + w > box.x0 && obj.y < box.y1 && obj.y + h > box.y0
+}
+
+/** Plana henüz eklenmemiş öğrencileri ortada yığına yerleştirir. */
+function appendMissingStudentsToPlan(
+  planObjects: SeatObject[],
+  roster: Student[],
+): { objects: SeatObject[]; addedStudentIds: string[] } {
+  const onPlan = new Set<string>()
+  planObjects.forEach((o) => {
+    if (o.type === 'student' && o.studentId) onPlan.add(o.studentId)
+  })
+  const missing = roster.filter((s) => !onPlan.has(s.id))
+  if (!missing.length) return { objects: planObjects, addedStudentIds: [] }
+
+  const next = [...planObjects]
+  missing.forEach((s, idx) => {
+    next.push({
+      id: uuidv4(),
+      type: 'student',
+      studentId: s.id,
+      x: 1000 - missing.length * 40 + idx * 80,
+      y: 1000,
+    })
+  })
+  return { objects: next, addedStudentIds: missing.map((s) => s.id) }
 }
 
 function getLabDesks(objs: SeatObject[]): SeatObject[] {
@@ -237,6 +262,7 @@ export function SeatingPlanPage() {
   const streamRef = useRef<MediaStream | null>(null)
 
   const [initDone, setInitDone] = useState(false);
+  const [highlightNewStudentIds, setHighlightNewStudentIds] = useState<Set<string>>(() => new Set())
   const [objects, setObjects] = useState<SeatObject[]>([])
   const [activeId, setActiveId] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
@@ -795,23 +821,19 @@ export function SeatingPlanPage() {
             uniqueObjects.push(obj);
           });
           
-          let finalObjects = [...uniqueObjects];
-          const newStudents = students.filter(s => !seenStudentIds.has(s.id));
-          
-          newStudents.forEach((s, idx) => {
-            finalObjects.push({
-              id: uuidv4(),
-              type: 'student',
-              studentId: s.id,
-              x: 1000 - (newStudents.length * 40) + (idx * 80),
-              y: 1000,
-            });
-          });
+          const { objects: finalObjects, addedStudentIds } = appendMissingStudentsToPlan(uniqueObjects, students)
+          if (addedStudentIds.length > 0) {
+            setHighlightNewStudentIds((prev) => {
+              const next = new Set(prev)
+              addedStudentIds.forEach((id) => next.add(id))
+              return next
+            })
+          }
 
           const snapped = snapPcLabelsToEdges(finalObjects);
           setObjects(snapped);
           
-          const needsPersist = newStudents.length > 0 ||
+          const needsPersist = addedStudentIds.length > 0 ||
             snapped.some((o, i) => o.x !== finalObjects[i].x || o.y !== finalObjects[i].y);
           if (needsPersist) persistPlan(snapped, activeMode);
 
@@ -828,6 +850,42 @@ export function SeatingPlanPage() {
       setInitDone(true);
     }
   }, [course?.id, students.length, initDone])
+
+  const studentIdsKey = useMemo(
+    () => students.map((s) => s.id).sort().join(','),
+    [students],
+  )
+  const syncedStudentIdsKeyRef = useRef('')
+
+  const dismissNewStudentHighlight = useCallback((studentId: string) => {
+    setHighlightNewStudentIds((prev) => {
+      if (!prev.has(studentId)) return prev
+      const next = new Set(prev)
+      next.delete(studentId)
+      return next
+    })
+  }, [])
+
+  useEffect(() => {
+    if (!initDone || !students.length) return
+    if (syncedStudentIdsKeyRef.current === studentIdsKey) return
+    const firstSync = syncedStudentIdsKeyRef.current === ''
+    syncedStudentIdsKeyRef.current = studentIdsKey
+    if (firstSync) return
+
+    setObjects((prev) => {
+      const { objects: withNew, addedStudentIds } = appendMissingStudentsToPlan(prev, students)
+      if (!addedStudentIds.length) return prev
+      setHighlightNewStudentIds((h) => {
+        const next = new Set(h)
+        addedStudentIds.forEach((id) => next.add(id))
+        return next
+      })
+      const snapped = snapPcLabelsToEdges(withNew)
+      persistPlan(snapped, layoutMode)
+      return snapped
+    })
+  }, [studentIdsKey, initDone, students, layoutMode])
 
   const updateEmptyDeskInfo = (deskId: string, data: any) => {
     setObjects(prev => {
@@ -2035,6 +2093,16 @@ export function SeatingPlanPage() {
                                   )
                                 }}
                                 onRemove={handleRemoveObject}
+                                isNewOnPlan={
+                                  obj.type === 'student' &&
+                                  !!obj.studentId &&
+                                  highlightNewStudentIds.has(obj.studentId)
+                                }
+                                onDismissNewHighlight={
+                                  obj.type === 'student' && obj.studentId
+                                    ? () => dismissNewStudentHighlight(obj.studentId!)
+                                    : undefined
+                                }
                               />
                             )
                           })
