@@ -1227,7 +1227,7 @@ export function SeatingPlanPage() {
     if (!course) return;
     try {
       toast({ title: 'Excel Hazırlanıyor', description: 'Oturma planı Excel dosyasına dönüştürülüyor, lütfen bekleyin...' });
-      await generateSeatingPlanExcel(objects, students, course.dersAdi, course.sinifAdi);
+      await generateSeatingPlanExcel(objects, students, course.dersAdi, course.sinifAdi, layoutMode);
     } catch (error: any) {
       console.error('Excel export error:', error);
       toast({ 
@@ -1343,6 +1343,18 @@ export function SeatingPlanPage() {
     }
 
     if (e.pointerType === 'mouse') {
+      if (!e.shiftKey) {
+        const start = { x: e.clientX, y: e.clientY }
+        const onUp = (ev: PointerEvent) => {
+          if (Math.hypot(ev.clientX - start.x, ev.clientY - start.y) < MARQUEE_MIN_PX) {
+            setIsSelectionMode(false)
+            setSelectedIds([])
+          }
+          window.removeEventListener('pointerup', onUp)
+        }
+        window.addEventListener('pointerup', onUp)
+        return
+      }
       e.stopPropagation()
       e.preventDefault()
       marqueeGestureRef.current = {
@@ -1638,7 +1650,7 @@ export function SeatingPlanPage() {
             centerOnInit={false}
             limitToBounds={false}
             wheel={{ disabled: true }}
-            panning={{ disabled: activeId !== null || isMarqueeSelecting, activationKeys: [' '] }}
+            panning={{ disabled: activeId !== null || isMarqueeSelecting }}
             onTransform={(ref: any) => {
               scaleRef.current = ref.state.scale
               const { positionX, positionY } = ref.state
@@ -2094,6 +2106,7 @@ export function SeatingPlanPage() {
         students={students}
         dersAdi={course?.dersAdi || ''}
         sinifAdi={course?.sinifAdi || ''}
+        layoutMode={layoutMode}
         onDownloadExcel={() => {
           setPreviewOpen(false)
           void handleDownloadExcel()

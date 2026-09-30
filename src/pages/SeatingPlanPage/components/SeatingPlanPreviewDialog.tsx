@@ -1,8 +1,15 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { SeatObject, Student } from '@/types'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { FileSpreadsheet, Printer } from 'lucide-react'
+import { FileSpreadsheet, Minus, Plus, Printer, RotateCcw } from 'lucide-react'
+const ZOOM_MIN = 0.5
+const ZOOM_MAX = 3
+const ZOOM_STEP = 0.05
+
+function clampZoom(value: number) {
+  return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round(value * 100) / 100))
+}
 
 const SIZES: Record<string, { w: number; h: number }> = {
   tahta: { w: 200, h: 40 },
@@ -28,7 +35,7 @@ interface PreviewBox {
   pcNo?: string
 }
 
-function buildBoxes(objects: SeatObject[], students: Student[]): PreviewBox[] {
+function buildBoxes(objects: SeatObject[], students: Student[], showPcNo: boolean): PreviewBox[] {
   const studentMap = new Map(students.map((s) => [s.id, s]))
   const pcByLink = new Map<string, string>()
   objects.forEach((o) => {
@@ -37,24 +44,44 @@ function buildBoxes(objects: SeatObject[], students: Student[]): PreviewBox[] {
     }
   })
 
-  return objects
-    .filter((o) => o.type !== 'pc_label')
-    .map((o) => {
-      const { w, h } = sizeOf(o.type)
-      const student = o.studentId ? studentMap.get(o.studentId) : undefined
-      const linkId = o.type === 'student' ? o.studentId : o.type === 'empty_desk' ? o.id : undefined
-      const pcNo = (linkId && pcByLink.get(linkId)) || o.pcNo || student?.pcNo || ''
+  const boxes: PreviewBox[] = []
+  for (const o of objects) {
+    if (o.type === 'pc_label' || o.type === 'empty_object') continue
 
-      if (o.type === 'student' && student) {
-        return { id: o.id, type: o.type, x: o.x, y: o.y, w, h, name: student.adSoyad.toLocaleUpperCase('tr-TR'), no: student.no, pcNo }
-      }
-      if (o.type === 'empty_desk') {
-        return { id: o.id, type: o.type, x: o.x, y: o.y, w, h, name: 'BOŞ', pcNo }
-      }
-      if (o.type === 'tahta') return { id: o.id, type: o.type, x: o.x, y: o.y, w, h, name: 'TAHTA' }
-      if (o.type === 'masa') return { id: o.id, type: o.type, x: o.x, y: o.y, w, h, name: 'ÖĞRETMEN MASASI' }
-      return { id: o.id, type: o.type, x: o.x, y: o.y, w, h, name: 'OBJE' }
-    })
+    const { w, h } = sizeOf(o.type)
+    const student = o.studentId ? studentMap.get(o.studentId) : undefined
+    const linkId = o.type === 'student' ? o.studentId : o.type === 'empty_desk' ? o.id : undefined
+    const rawPc = (linkId && pcByLink.get(linkId)) || o.pcNo || student?.pcNo || ''
+    const pcNo = showPcNo ? rawPc : ''
+
+    if (o.type === 'student') {
+      if (!student) continue
+      boxes.push({
+        id: o.id,
+        type: o.type,
+        x: o.x,
+        y: o.y,
+        w,
+        h,
+        name: student.adSoyad.toLocaleUpperCase('tr-TR'),
+        no: student.no,
+        pcNo: pcNo || undefined,
+      })
+      continue
+    }
+    if (o.type === 'empty_desk') {
+      boxes.push({ id: o.id, type: o.type, x: o.x, y: o.y, w, h, name: 'BOŞ', pcNo: pcNo || undefined })
+      continue
+    }
+    if (o.type === 'tahta') {
+      boxes.push({ id: o.id, type: o.type, x: o.x, y: o.y, w, h, name: 'TAHTA' })
+      continue
+    }
+    if (o.type === 'masa') {
+      boxes.push({ id: o.id, type: o.type, x: o.x, y: o.y, w, h, name: 'ÖĞRETMEN MASASI' })
+    }
+  }
+  return boxes
 }
 
 function layoutMetrics(boxes: PreviewBox[]) {
@@ -100,6 +127,7 @@ interface SeatingPlanPreviewDialogProps {
   students: Student[]
   dersAdi: string
   sinifAdi: string
+  layoutMode: 'classroom' | 'lab'
   onDownloadExcel: () => void
 }
 
@@ -110,15 +138,31 @@ export function SeatingPlanPreviewDialog({
   students,
   dersAdi,
   sinifAdi,
+  layoutMode,
   onDownloadExcel,
 }: SeatingPlanPreviewDialogProps) {
-  const boxes = useMemo(() => buildBoxes(objects, students), [objects, students])
+  const showPcNo = layoutMode === 'lab'
+  const [zoom, setZoom] = useState(1)
+
+  useEffect(() => {
+    if (open) setZoom(1)
+  }, [open])
+
+  const boxes = useMemo(() => buildBoxes(objects, students, showPcNo), [objects, students, showPcNo])
   const metrics = useMemo(() => layoutMetrics(boxes), [boxes])
   const title = `${sinifAdi.toLocaleUpperCase('tr-TR')} SINIFI  ${dersAdi.toLocaleUpperCase('tr-TR')} DERSİ  OTURMA PLANI`
   const dateLabel = new Date().toLocaleDateString('tr-TR')
 
   const previewWidth = 920
-  const scale = Math.min(previewWidth / (metrics.width + 24), 560 / (metrics.height + 24), 1.35)
+  const fitScale = Math.min(previewWidth / (metrics.width + 24), 560 / (metrics.height + 24), 1.35)
+  const planW = (metrics.width + 24) * fitScale
+  const planH = (metrics.height + 24) * fitScale
+
+  const handlePreviewWheel = (e: React.WheelEvent) => {
+    if (!e.ctrlKey && !e.metaKey) return
+    e.preventDefault()
+    setZoom((z) => clampZoom(z + (e.deltaY < 0 ? ZOOM_STEP : -ZOOM_STEP)))
+  }
 
   const handlePrint = () => {
     const printW = 1040
@@ -191,41 +235,89 @@ export function SeatingPlanPreviewDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="rounded-xl border bg-slate-100 p-3 overflow-auto max-h-[62vh]">
+        <div className="flex flex-wrap items-center justify-between gap-2 mb-2 px-0.5">
+          <p className="text-[10px] text-muted-foreground">Ctrl + tekerlek veya butonlarla yakınlaştırın</p>
+          <div className="flex items-center gap-1 ml-auto">
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              aria-label="Uzaklaştır"
+              disabled={zoom <= ZOOM_MIN}
+              onClick={() => setZoom((z) => clampZoom(z - ZOOM_STEP))}
+            >
+              <Minus className="h-4 w-4" />
+            </Button>
+            <span className="text-xs font-semibold tabular-nums w-12 text-center">{Math.round(zoom * 100)}%</span>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              aria-label="Yakınlaştır"
+              disabled={zoom >= ZOOM_MAX}
+              onClick={() => setZoom((z) => clampZoom(z + ZOOM_STEP))}
+            >
+              <Plus className="h-4 w-4" />
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="icon"
+              className="h-8 w-8"
+              aria-label="Sığdır"
+              disabled={zoom === 1}
+              onClick={() => setZoom(1)}
+            >
+              <RotateCcw className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+
+        <div
+          className="rounded-xl border bg-slate-100 p-3 overflow-auto max-h-[62vh]"
+          onWheel={handlePreviewWheel}
+        >
           <div className="text-center mb-3">
             <div className="text-[13px] font-bold tracking-wide text-slate-800">{title}</div>
             <div className="text-[11px] italic text-slate-500 mt-0.5">{dateLabel}</div>
           </div>
-          <div
-            className="relative mx-auto bg-white rounded-lg shadow-sm border"
-            style={{
-              width: (metrics.width + 24) * scale,
-              height: (metrics.height + 24) * scale,
-            }}
-          >
-            {boxes.map((box) => {
-              const left = (box.x - metrics.minX + 12) * scale
-              const top = (box.y - metrics.minY + 12) * scale
-              const isFurniture = box.type === 'tahta' || box.type === 'masa'
-              const isEmpty = box.type === 'empty_desk' || box.type === 'empty_object'
-              return (
-                <div
-                  key={box.id}
-                  className={`absolute flex flex-col items-center justify-center text-center overflow-hidden rounded-md border px-0.5 ${
-                    isFurniture
-                      ? 'bg-slate-200 border-slate-400'
-                      : isEmpty
-                        ? 'bg-white border-dashed border-slate-400 text-slate-500'
-                        : 'bg-slate-50 border-slate-300'
-                  }`}
-                  style={{ left, top, width: box.w * scale, height: box.h * scale }}
-                >
-                  <span className="text-[9px] font-bold leading-tight text-slate-800">{box.name}</span>
-                  {box.no ? <span className="text-[8px] text-slate-500 leading-tight">{box.no}</span> : null}
-                  {box.pcNo ? <span className="text-[8px] font-bold text-blue-700 leading-tight">PC {box.pcNo}</span> : null}
-                </div>
-              )
-            })}
+          <div className="mx-auto" style={{ width: planW * zoom, height: planH * zoom }}>
+            <div
+              className="relative bg-white rounded-lg shadow-sm border origin-top-left"
+              style={{
+                width: planW,
+                height: planH,
+                transform: `scale(${zoom})`,
+              }}
+            >
+              {boxes.map((box) => {
+                const left = (box.x - metrics.minX + 12) * fitScale
+                const top = (box.y - metrics.minY + 12) * fitScale
+                const isFurniture = box.type === 'tahta' || box.type === 'masa'
+                const isEmpty = box.type === 'empty_desk' || box.type === 'empty_object'
+                return (
+                  <div
+                    key={box.id}
+                    className={`absolute flex flex-col items-center justify-center text-center overflow-hidden rounded-md border px-0.5 ${
+                      isFurniture
+                        ? 'bg-slate-200 border-slate-400'
+                        : isEmpty
+                          ? 'bg-white border-dashed border-slate-400 text-slate-500'
+                          : 'bg-slate-50 border-slate-300'
+                    }`}
+                    style={{ left, top, width: box.w * fitScale, height: box.h * fitScale }}
+                  >
+                    <span className="text-[9px] font-bold leading-tight text-slate-800">{box.name}</span>
+                    {box.no ? <span className="text-[8px] text-slate-500 leading-tight">{box.no}</span> : null}
+                    {box.pcNo ? (
+                      <span className="text-[8px] font-bold text-blue-700 leading-tight">PC {box.pcNo}</span>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
           </div>
         </div>
 

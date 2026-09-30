@@ -87,7 +87,9 @@ export const generateSeatingPlanExcel = async (
   students: Student[],
   dersAdi: string,
   sinifAdi: string,
+  layoutMode: 'classroom' | 'lab' = 'lab',
 ) => {
+  const showPcNo = layoutMode === 'lab'
   const workbook = new ExcelJS.Workbook()
   const worksheet = workbook.addWorksheet('Oturma Düzeni')
 
@@ -102,7 +104,12 @@ export const generateSeatingPlanExcel = async (
     verticalCentered: true,
   }
 
-  const drawable = objects.filter((o) => o.type !== 'pc_label')
+  const studentMap = new Map(students.map((s) => [s.id, s]))
+  const drawable = objects.filter((o) => {
+    if (o.type === 'pc_label' || o.type === 'empty_object') return false
+    if (o.type === 'student') return Boolean(o.studentId && studentMap.has(o.studentId))
+    return o.type === 'empty_desk' || o.type === 'tahta' || o.type === 'masa'
+  })
   if (drawable.length === 0) {
     throw new Error('İndirilecek oturma planı nesnesi yok.')
   }
@@ -143,7 +150,6 @@ export const generateSeatingPlanExcel = async (
   dateCell.alignment = { horizontal: 'center', vertical: 'middle' }
   worksheet.getRow(3).height = 16
 
-  const studentMap = new Map(students.map((s) => [s.id, s]))
   const pcByLink = pcMapForDesks(objects)
   const used = new Set<string>()
   markOccupied(used, 1, 1, 3, maxCol)
@@ -189,7 +195,9 @@ export const generateSeatingPlanExcel = async (
 
       const student = obj.studentId ? studentMap.get(obj.studentId) : undefined
       const linkId = deskLinkId(obj)
-      const pcNo = (linkId && pcByLink.get(linkId)) || obj.pcNo || student?.pcNo || ''
+      const pcNo = showPcNo
+        ? (linkId && pcByLink.get(linkId)) || obj.pcNo || student?.pcNo || ''
+        : ''
 
       if (student) {
         const adSoyad = student.adSoyad.toLocaleUpperCase('tr-TR')
@@ -199,7 +207,7 @@ export const generateSeatingPlanExcel = async (
         if (student.no) {
           lines.push({ font: { name: FONT, size: 8, color: { argb: 'FF4B5563' } }, text: `\n${student.no}` })
         }
-        if (pcNo) {
+        if (showPcNo && pcNo) {
           lines.push({ font: { name: FONT, size: 8, bold: true, color: { argb: 'FF1D4ED8' } }, text: `\nPC ${pcNo}` })
         }
         cell.value = { richText: lines }
@@ -207,7 +215,7 @@ export const generateSeatingPlanExcel = async (
         const lines: ExcelJS.RichText[] = [
           { font: { name: FONT, size: 9, bold: true, color: { argb: 'FF6B7280' } }, text: 'BOŞ' },
         ]
-        if (pcNo) {
+        if (showPcNo && pcNo) {
           lines.push({ font: { name: FONT, size: 8, bold: true, color: { argb: 'FF1D4ED8' } }, text: `\nPC ${pcNo}` })
         }
         cell.value = { richText: lines }
