@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useSearchParams } from 'react-router-dom'
 import { normalizeTime, useClassAttendance } from '@/hooks/useClassAttendance'
+import { useCourses } from '@/hooks/useCourses'
+import { useProgramLessonNavigation } from '@/hooks/useProgramLessonNavigation'
 import { useBellSchedule } from '@/hooks/useTimetables'
 import type { AttendanceMark } from '@/types'
 
@@ -45,7 +47,19 @@ export function useCourseLessonSlot(sinifAdi: string, pinned?: { date: string; t
   const date = nudge?.date || pinned?.date || searchParams.get('tarih') || now.date
   const time = normalizeTime(nudge?.time || pinned?.time || searchParams.get('saat') || now.time)
   const { schedule } = useBellSchedule()
+  const { courses } = useCourses()
+  const course = useMemo(
+    () => (courseId ? courses.find((c) => c.id === courseId) ?? null : null),
+    [courseId, courses],
+  )
   const { marks, notes, herkesGeldi, setMark, setNote, markEveryonePresent, replaceMarks, lessonPeriod, loading } = useClassAttendance(sinifAdi, date, time, schedule, courseId)
+
+  const programNav = useProgramLessonNavigation({
+    course,
+    date,
+    time,
+    lessonPeriod,
+  })
 
   const patch = (partial: { tarih?: string; saat?: string }) => {
     const nextDate = partial.tarih || date
@@ -58,6 +72,18 @@ export function useCourseLessonSlot(sinifAdi: string, pinned?: { date: string; t
     next.set('tarih', nextDate)
     next.set('saat', nextTime)
     setSearchParams(next, { replace: true, state: location.state })
+  }
+
+  const goPrevLesson = () => {
+    const slot = programNav.prev
+    if (!slot) return
+    patch({ tarih: slot.date, saat: slot.time })
+  }
+
+  const goNextLesson = () => {
+    const slot = programNav.next
+    if (!slot) return
+    patch({ tarih: slot.date, saat: slot.time })
   }
 
   return {
@@ -74,5 +100,11 @@ export function useCourseLessonSlot(sinifAdi: string, pinned?: { date: string; t
     replaceMarks,
     lessonPeriod,
     loading,
+    lessonPrev: programNav.prev,
+    lessonNext: programNav.next,
+    lessonPrevLabel: programNav.prev?.label,
+    lessonNextLabel: programNav.next?.label,
+    goPrevLesson,
+    goNextLesson,
   }
 }

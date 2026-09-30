@@ -3,7 +3,12 @@ import { deleteField, doc, getDoc, serverTimestamp, setDoc, updateDoc, type Fiel
 import { db } from '@/lib/firebase'
 import { useAuth } from '@/contexts/AuthContext'
 import type { AttendanceMark, ClassAttendanceMarks } from '@/types'
-import { buildDaySlots, findLessonPeriodForTime, type BellSchedule } from '@/lib/timetable'
+import {
+  buildDaySlots,
+  findLessonPeriodForTime,
+  previousLessonPeriodInSameBlock,
+  type BellSchedule,
+} from '@/lib/timetable'
 import { formatClassName } from '@/lib/utils'
 
 function pad(n: number) {
@@ -238,6 +243,7 @@ export function findPreviousLessonSession(
   time: string,
   lessonPeriod: number | undefined,
   currentKey: string,
+  bellSchedule?: BellSchedule | null,
 ): AttendanceSessionSummary | null {
   const ad = formatClassName(sinifAdi)
   const currentWhen = `${date}T${normalizeTime(time)}`
@@ -245,14 +251,21 @@ export function findPreviousLessonSession(
     (s) =>
       formatClassName(s.sinifAdi) === ad &&
       s.key !== currentKey &&
-      s.dCount + s.gCount > 0,
+      (s.dCount + s.gCount > 0 || s.herkesGeldi),
   )
 
   const sameDay = candidates.filter((s) => s.date === date)
 
-  if (lessonPeriod != null && lessonPeriod > 1) {
-    const prevPeriod = sameDay.find((s) => s.lessonPeriod === lessonPeriod - 1)
-    if (prevPeriod) return prevPeriod
+  if (lessonPeriod != null) {
+    const prevPeriodNum = bellSchedule
+      ? previousLessonPeriodInSameBlock(bellSchedule, lessonPeriod)
+      : lessonPeriod > 1
+        ? lessonPeriod - 1
+        : null
+    if (prevPeriodNum != null) {
+      const prevPeriod = sameDay.find((s) => s.lessonPeriod === prevPeriodNum)
+      if (prevPeriod) return prevPeriod
+    }
   }
 
   const earlierSameDay = sameDay
@@ -273,6 +286,7 @@ export function findEarlierLessonToday(
   date: string,
   time: string,
   lessonPeriod: number | undefined,
+  bellSchedule?: BellSchedule | null,
 ): AttendanceSessionSummary | null {
   const ad = formatClassName(sinifAdi)
   const currentWhen = `${date}T${normalizeTime(time)}`
@@ -284,9 +298,16 @@ export function findEarlierLessonToday(
       (lessonPeriod == null || s.lessonPeriod !== lessonPeriod) &&
       `${s.date}T${normalizeTime(s.time)}` < currentWhen,
   )
-  if (lessonPeriod != null && lessonPeriod > 1) {
-    const prevPeriod = sameDay.find((s) => s.lessonPeriod === lessonPeriod - 1)
-    if (prevPeriod) return prevPeriod
+  if (lessonPeriod != null) {
+    const prevPeriodNum = bellSchedule
+      ? previousLessonPeriodInSameBlock(bellSchedule, lessonPeriod)
+      : lessonPeriod > 1
+        ? lessonPeriod - 1
+        : null
+    if (prevPeriodNum != null) {
+      const prevPeriod = sameDay.find((s) => s.lessonPeriod === prevPeriodNum)
+      if (prevPeriod) return prevPeriod
+    }
   }
   return sameDay.sort((a, b) => `${b.date}T${b.time}`.localeCompare(`${a.date}T${a.time}`))[0] ?? null
 }
@@ -313,8 +334,10 @@ export function findAdjacentLessonAttendance(
   if (bellSchedule && lessonPeriod != null) {
     const lessons = buildDaySlots(bellSchedule).filter((s) => s.kind === 'lesson')
     const idx = lessons.findIndex((s) => s.period === lessonPeriod)
-    if (idx > 0) {
-      prev = { date, time: lessons[idx - 1]!.start }
+    const prevPeriod = previousLessonPeriodInSameBlock(bellSchedule, lessonPeriod)
+    if (prevPeriod != null) {
+      const prevSlot = lessons.find((s) => s.period === prevPeriod)
+      if (prevSlot) prev = { date, time: prevSlot.start }
     }
     if (idx >= 0 && idx < lessons.length - 1) {
       next = { date, time: lessons[idx + 1]!.start }
@@ -374,10 +397,7 @@ export function useClassAttendance(
     getDoc(doc(db, 'users', user.uid))
       .then((snap) => {
         if (cancelled) return
-        const all = (snap.data()?.classAttendances ?? {}) as Record<
-          string,
-          { sinifAdi?: string; date?: string; time?: string; lessonPeriod?: number; marks?: ClassAttendanceMarks; notes?: Record<string, string>; herkesGeldi?: boolean; courseId?: string }
-        >
+        const all = (snap.data()?.classAttendances ?? {}) as Record<string, StoredAttendance>
         const related = Object.entries(all).filter(([key, value]) => {
           if (key === canonicalKey) return true
           if (formatClassName(value.sinifAdi || '') !== sinifAdi || value.date !== date) return false
@@ -411,12 +431,52 @@ export function useClassAttendance(
         courseOwnerRef.current = owner
         sessionKeyRef.current = canonicalKey
         duplicateKeysRef.current = related.map(([key]) => key).filter((key) => key !== canonicalKey)
-        marksRef.current = marks
-        notesRef.current = mergedNotes
-        herkesGeldiRef.current = savedEveryone
-        setMarks(marks)
-        setNotes(mergedNotes)
-        setHerkesGeldi(savedEveryone)
+        let nextMarks = marks
+        let nextNotes = mergedNotes
+        let nextEveryone = savedEveryone
+
+        if (!hasAttendance && period != null && bellSchedule) {
+          const prevPeriod = previousLessonPeriodInSameBlock(bellSchedule, period)
+          const blockPrev =
+            prevPeriod != null
+              ? mergedAttendanceForPeriod(all, sinifAdi, date, prevPeriod, bellSchedule)
+              : null
+          if (blockPrev) {
+            nextMarks = { ...blockPrev.marks }
+            nextNotes = { ...blockPrev.notes }
+            nextEveryone = blockPrev.herkesGeldi
+            const slot = buildDaySlots(bellSchedule).find(
+              (item) => item.kind === 'lesson' && item.period === period,
+            )
+            const payload: Record<string, unknown> = {
+              sinifAdi,
+              date,
+              time: slot?.start ?? clock,
+              marks: nextMarks,
+              updatedAt: serverTimestamp(),
+              lessonPeriod: period,
+            }
+            if (Object.keys(nextNotes).length > 0) payload.notes = nextNotes
+            if (nextEveryone) payload.herkesGeldi = true
+            if (courseId) {
+              payload.courseId = courseId
+              courseOwnerRef.current = courseId
+            }
+            const userRef = doc(db, 'users', user.uid)
+            void updateDoc(userRef, {
+              [`classAttendances.${canonicalKey}`]: payload as unknown as FieldValue,
+            }).catch(() =>
+              setDoc(userRef, { classAttendances: { [canonicalKey]: payload } }, { merge: true }),
+            )
+          }
+        }
+
+        marksRef.current = nextMarks
+        notesRef.current = nextNotes
+        herkesGeldiRef.current = nextEveryone
+        setMarks(nextMarks)
+        setNotes(nextNotes)
+        setHerkesGeldi(nextEveryone)
         setStoredLessonPeriod(period ?? undefined)
         setLoading(false)
       })
@@ -602,6 +662,45 @@ export function useClassAttendance(
   }, [user, sinifAdi, date, time, bellSchedule, courseId])
 
   return { marks, notes, herkesGeldi, loading, setMark, setNote, markEveryonePresent, replaceMarks, lessonPeriod }
+}
+
+type StoredAttendance = {
+  sinifAdi?: string
+  date?: string
+  time?: string
+  lessonPeriod?: number
+  marks?: ClassAttendanceMarks
+  notes?: Record<string, string>
+  herkesGeldi?: boolean
+  courseId?: string
+}
+
+function mergedAttendanceForPeriod(
+  all: Record<string, StoredAttendance>,
+  sinifAdi: string,
+  date: string,
+  targetPeriod: number,
+  bellSchedule: BellSchedule | null | undefined,
+): { marks: ClassAttendanceMarks; notes: Record<string, string>; herkesGeldi: boolean } | null {
+  const marks: ClassAttendanceMarks = {}
+  const notes: Record<string, string> = {}
+  let herkesGeldi = false
+  let matched = false
+  for (const value of Object.values(all)) {
+    if (formatClassName(value.sinifAdi || '') !== formatClassName(sinifAdi) || value.date !== date) continue
+    const valuePeriod =
+      value.lessonPeriod ??
+      (value.time && bellSchedule ? findLessonPeriodForTime(bellSchedule, value.time) : null)
+    if (valuePeriod !== targetPeriod) continue
+    matched = true
+    Object.assign(marks, value.marks ?? {})
+    Object.assign(notes, value.notes ?? {})
+    if (value.herkesGeldi) herkesGeldi = true
+  }
+  if (!matched) return null
+  const hasMarks = Object.values(marks).some((mark) => mark === 'D' || mark === 'G')
+  if (!hasMarks && !herkesGeldi) return null
+  return { marks, notes, herkesGeldi }
 }
 
 function recordHasAttendance(value: { marks?: ClassAttendanceMarks; herkesGeldi?: boolean }) {

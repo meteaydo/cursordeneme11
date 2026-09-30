@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useLayoutEffect, useMemo } from 'react'
-import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom'
 import { collection, doc, updateDoc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { DialogDescription } from '@/components/ui/dialog'
@@ -122,6 +122,7 @@ export default function CourseDetailPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const navigate = useNavigate()
   const location = useLocation()
+  const [searchParams] = useSearchParams()
   const id = courseId!
 
   const state = location.state as { courseName?: string; className?: string; fromTemplate?: boolean; sharedRoster?: boolean } | null
@@ -172,9 +173,13 @@ export default function CourseDetailPage() {
   // Selected application for scoring
   const [selectedApp, setSelectedApp] = useState<Application | null>(null)
   const activeApp = applications.find((a) => a.id === selectedApp?.id) ?? selectedApp
+  const urlTarih = searchParams.get('tarih')
+  const urlSaat = searchParams.get('saat')
+  const urlLessonPin =
+    urlTarih && urlSaat ? { date: urlTarih, time: normalizeTime(urlSaat) } : null
   const lessonPin = activeApp?.tarih
     ? { date: activeApp.tarih, time: appClock(activeApp) || '00:00' }
-    : null
+    : urlLessonPin
   const lessonSlot = useCourseLessonSlot(sinifAdi, lessonPin, id)
   const liveAttendance = useClassAttendance(sinifAdi, nowSlot.date, nowSlot.time, bellSchedule)
   const [scores, setScores] = useState<Record<string, Score>>({})
@@ -391,12 +396,17 @@ export default function CourseDetailPage() {
     }
   }, [applications, newlyAddedAppId])
 
-  // Sayfa ilk açıldığında en son uygulamayı (listenin ilk elemanı) otomatik seç
+  // Sayfa ilk açıldığında uygulama seç (programdan ?tarih= varsa o güne uygun kayıt)
   useEffect(() => {
-    if (applications.length > 0 && !selectedApp && !newlyAddedAppId) {
-      setSelectedApp(applications[0])
+    if (applications.length === 0 || selectedApp || newlyAddedAppId) return
+    const tarih = searchParams.get('tarih')
+    if (tarih) {
+      const match = applications.find((a) => a.tarih === tarih)
+      if (match) setSelectedApp(match)
+      return
     }
-  }, [applications])
+    setSelectedApp(applications[0])
+  }, [applications, searchParams, selectedApp, newlyAddedAppId])
 
   // Template kontrolü. Ortak liste varsa Excel yeniden inmez.
   useEffect(() => {
@@ -550,7 +560,14 @@ export default function CourseDetailPage() {
       return
     }
     const prev = sinifAdi
-      ? findEarlierLessonToday(attendanceSessions, sinifAdi, nowSlot.date, nowSlot.time, liveAttendance.lessonPeriod)
+      ? findEarlierLessonToday(
+          attendanceSessions,
+          sinifAdi,
+          nowSlot.date,
+          nowSlot.time,
+          liveAttendance.lessonPeriod,
+          bellSchedule,
+        )
       : null
     if (prev) {
       setTransferPrompt(prev)
@@ -1419,6 +1436,12 @@ export default function CourseDetailPage() {
             time={lessonSlot.time}
             onDateChange={lessonSlot.setDate}
             onTimeChange={lessonSlot.setTime}
+            onPrevLesson={lessonSlot.goPrevLesson}
+            onNextLesson={lessonSlot.goNextLesson}
+            prevLessonDisabled={!lessonSlot.lessonPrev}
+            nextLessonDisabled={!lessonSlot.lessonNext}
+            prevLessonLabel={lessonSlot.lessonPrevLabel}
+            nextLessonLabel={lessonSlot.lessonNextLabel}
           />
           {sinifAdi ? (
             <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">

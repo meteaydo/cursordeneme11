@@ -1,5 +1,5 @@
 import JSZip from 'jszip'
-import type { AnnualPlan, AnnualPlanItem } from '@/types'
+import type { AnnualPlan, AnnualPlanItem, Course } from '@/types'
 
 const MONTHS: Record<string, number> = {
   ocak: 0,
@@ -199,6 +199,43 @@ export async function parseAnnualPlanDocx(file: File | Blob, fileName?: string):
   const xml = await xmlFile.async('string')
   const name = fileName ?? (file instanceof File ? file.name : undefined)
   return planFromTables(xml, name)
+}
+
+/** Sınıf adından kademe (9, 10, 11, 12 …) */
+export function gradeFromSinifAdi(sinifAdi: string): string {
+  return sinifAdi.match(/^\d+/)?.[0] ?? ''
+}
+
+/** Aynı ders + kademe grubu için paylaşılan plan anahtarı */
+export function annualPlanGroupKey(dersAdi: string, sinifAdi: string): string {
+  const ders = foldTr(dersAdi.trim())
+  const grade = gradeFromSinifAdi(sinifAdi)
+  return `${ders}|${grade || foldTr(sinifAdi.trim())}`
+}
+
+export type ResolvedAnnualPlan = {
+  plan: AnnualPlan
+  /** Planın kayıtlı olduğu ders (kendi veya ilk yüklenen eş ders) */
+  source: Course
+  isOwn: boolean
+}
+
+/** Önce kendi planı; yoksa aynı ders+kademede en erken kayıtlı planlı ders */
+export function resolveAnnualPlanForCourse(courses: Course[], target: Course): ResolvedAnnualPlan | null {
+  if (target.annualPlan?.items.length) {
+    return { plan: target.annualPlan, source: target, isOwn: true }
+  }
+  const key = annualPlanGroupKey(target.dersAdi, target.sinifAdi)
+  const peer = courses
+    .filter(
+      (c) =>
+        c.id !== target.id &&
+        annualPlanGroupKey(c.dersAdi, c.sinifAdi) === key &&
+        c.annualPlan?.items.length,
+    )
+    .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())[0]
+  if (!peer?.annualPlan) return null
+  return { plan: peer.annualPlan, source: peer, isOwn: false }
 }
 
 export type PlanDayMatch = { item: AnnualPlanItem; kind: 'current' | 'upcoming' | 'past' }

@@ -1,28 +1,22 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { ChevronLeft, ChevronRight, Loader2, Search, X } from 'lucide-react'
+import { Loader2, Search, X } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
+import { LessonSlotHeader } from '@/components/LessonSlotHeader'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog'
-import { TimeInput24 } from '@/components/ui/time-input-24'
 import { OfflineImage } from '@/components/ui/OfflineImage'
 import { useClassRoster } from '@/hooks/useClassRoster'
 import { useFuseStudentSearch } from '@/hooks/useFuseStudentSearch'
 import {
   attendanceSessionKey,
-  findAdjacentLessonAttendance,
   findPreviousLessonSession,
   normalizeTime,
   useAttendanceHistory,
   useClassAttendance,
 } from '@/hooks/useClassAttendance'
+import { useProgramLessonNavigation } from '@/hooks/useProgramLessonNavigation'
 import { toast } from '@/hooks/use-toast'
 import { useBellSchedule } from '@/hooks/useTimetables'
 import { formatClassName } from '@/lib/utils'
@@ -40,22 +34,6 @@ function nowLocal() {
   }
 }
 
-function formatTrDate(iso: string) {
-  const [y, m, d] = iso.split('-')
-  if (!y || !m || !d) return iso
-  return `${d}.${m}.${y}`
-}
-
-function openPicker(input: HTMLInputElement | null) {
-  if (!input) return
-  try {
-    input.showPicker()
-  } catch {
-    input.focus()
-    input.click()
-  }
-}
-
 export default function ClassAttendancePage() {
   const navigate = useNavigate()
   const { sinifAdi: raw = '' } = useParams()
@@ -69,9 +47,6 @@ export default function ClassAttendancePage() {
   const [time, setTime] = useState(timeParam ? normalizeTime(timeParam) : now.time)
   const fromHistory = (location.state as { from?: string } | null)?.from
   const historyBack = fromHistory?.includes('/yoklamalar') ? fromHistory : ''
-  const dateInputRef = useRef<HTMLInputElement>(null)
-  const [timeDialogOpen, setTimeDialogOpen] = useState(false)
-
   useEffect(() => {
     if (dateParam) setDate(dateParam)
     if (timeParam) setTime(normalizeTime(timeParam))
@@ -102,22 +77,17 @@ export default function ClassAttendancePage() {
         time,
         lessonPeriod,
         currentSessionKey,
-      ),
-    [historySessions, sinifAdi, date, time, lessonPeriod, currentSessionKey],
-  )
-
-  const adjacentLessons = useMemo(
-    () =>
-      findAdjacentLessonAttendance(
-        historySessions,
-        sinifAdi,
-        date,
-        time,
-        lessonPeriod,
         bellSchedule,
       ),
-    [historySessions, sinifAdi, date, time, lessonPeriod, bellSchedule],
+    [historySessions, sinifAdi, date, time, lessonPeriod, currentSessionKey, bellSchedule],
   )
+
+  const programNav = useProgramLessonNavigation({
+    sinifAdi,
+    date,
+    time,
+    lessonPeriod,
+  })
 
   const goToAttendanceSlot = (slot: { date: string; time: string }) => {
     navigate(
@@ -158,66 +128,19 @@ export default function ClassAttendancePage() {
       backTitle={historyBack ? 'Yoklama defteri' : 'Sınıflarım'}
     >
       <div className="space-y-4 pb-32">
-        <div className="grid w-full grid-cols-[2.75rem_1fr_2.75rem] items-center gap-x-1 sm:grid-cols-[3rem_1fr_3rem] sm:gap-x-3">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-11 w-11 shrink-0 justify-self-start -ml-1 sm:ml-0"
-            disabled={!adjacentLessons.prev}
-            aria-label="Önceki ders yoklaması"
-            onClick={() => adjacentLessons.prev && goToAttendanceSlot(adjacentLessons.prev)}
-          >
-            <ChevronLeft className="h-6 w-6" />
-          </Button>
-          <div className="flex flex-wrap items-baseline justify-center gap-x-2 gap-y-1 min-w-0 px-0.5 justify-self-center">
-            {lessonPeriod != null ? (
-              <span className="text-lg font-semibold text-primary">{lessonPeriod}. ders</span>
-            ) : (
-              <span className="text-xs text-muted-foreground">Ders aralığı dışı</span>
-            )}
-            <span className="text-sm text-muted-foreground inline-flex items-baseline gap-1 flex-wrap justify-center">
-              <button
-                type="button"
-                className="tabular-nums rounded-sm underline-offset-2 hover:underline hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={() => setTimeDialogOpen(true)}
-              >
-                {time}
-              </button>
-              <span>
-                (
-                <button
-                  type="button"
-                  className="tabular-nums rounded-sm underline-offset-2 hover:underline hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  onClick={() => openPicker(dateInputRef.current)}
-                >
-                  {formatTrDate(date)}
-                </button>
-                )
-              </span>
-            </span>
-          </div>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="h-11 w-11 shrink-0 justify-self-end -mr-1 sm:mr-0"
-            disabled={!adjacentLessons.next}
-            aria-label="Sonraki ders yoklaması"
-            onClick={() => adjacentLessons.next && goToAttendanceSlot(adjacentLessons.next)}
-          >
-            <ChevronRight className="h-6 w-6" />
-          </Button>
-          <input
-            ref={dateInputRef}
-            type="date"
-            className="sr-only"
-            tabIndex={-1}
-            aria-hidden
-            value={date}
-            onChange={(e) => setDate(e.target.value)}
-          />
-        </div>
+        <LessonSlotHeader
+          lessonPeriod={lessonPeriod}
+          date={date}
+          time={time}
+          onDateChange={setDate}
+          onTimeChange={setTime}
+          onPrevLesson={() => programNav.prev && goToAttendanceSlot(programNav.prev)}
+          onNextLesson={() => programNav.next && goToAttendanceSlot(programNav.next)}
+          prevLessonDisabled={!programNav.prev}
+          nextLessonDisabled={!programNav.next}
+          prevLessonLabel={programNav.prev?.label}
+          nextLessonLabel={programNav.next?.label}
+        />
 
         <div className={!loading && rows.length > 0 ? 'space-y-1' : undefined}>
           {!loading && rows.length > 0 ? (
@@ -345,14 +268,6 @@ export default function ClassAttendancePage() {
         )}
       </div>
 
-      <Dialog open={timeDialogOpen} onOpenChange={setTimeDialogOpen}>
-        <DialogContent className="max-w-xs sm:top-[40%]">
-          <DialogHeader>
-            <DialogTitle>Saat (24 saat)</DialogTitle>
-          </DialogHeader>
-          <TimeInput24 value={time} onChange={setTime} />
-        </DialogContent>
-      </Dialog>
     </Layout>
   )
 }

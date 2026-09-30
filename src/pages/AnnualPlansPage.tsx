@@ -9,7 +9,12 @@ import { AnnualPlanBanner } from '@/components/AnnualPlanBanner'
 import { useCourses } from '@/hooks/useCourses'
 import { pickTimetableId, timetableToBellSchedule, useTimetables } from '@/hooks/useTimetables'
 import { db } from '@/lib/firebase'
-import { parseAnnualPlanDocx, findPlanItemForDate, formatPlanRange } from '@/lib/annualPlanParser'
+import {
+  parseAnnualPlanDocx,
+  findPlanItemForDate,
+  formatPlanRange,
+  resolveAnnualPlanForCourse,
+} from '@/lib/annualPlanParser'
 import { findCourseForNowOrNextLesson } from '@/lib/timetableCourseMatch'
 import { toast } from '@/hooks/use-toast'
 import { cn } from '@/lib/utils'
@@ -37,8 +42,8 @@ export default function AnnualPlansPage() {
   const sortedCourses = useMemo(
     () =>
       [...courses].sort((a, b) => {
-        const aPlan = a.annualPlan?.items.length ? 0 : 1
-        const bPlan = b.annualPlan?.items.length ? 0 : 1
+        const aPlan = resolveAnnualPlanForCourse(courses, a) ? 0 : 1
+        const bPlan = resolveAnnualPlanForCourse(courses, b) ? 0 : 1
         if (aPlan !== bPlan) return aPlan - bPlan
         const classCmp = (a.sinifAdi || '').localeCompare(b.sinifAdi || '', 'tr', { numeric: true })
         if (classCmp !== 0) return classCmp
@@ -76,13 +81,18 @@ export default function AnnualPlansPage() {
       return
     }
 
-    const withPlan = sortedCourses.find((c) => c.annualPlan?.items.length)
+    const withPlan = sortedCourses.find((c) => resolveAnnualPlanForCourse(sortedCourses, c))
     setSelectedId((withPlan ?? sortedCourses[0]).id)
     pendingWeekScroll.current = true
   }, [sortedCourses, selectedId, timetablesLoading, lessonCourseId])
 
   const selected = sortedCourses.find((c) => c.id === selectedId)
-  const plan = selected?.annualPlan
+  const resolvedPlan = useMemo(
+    () => (selected ? resolveAnnualPlanForCourse(sortedCourses, selected) : null),
+    [selected, sortedCourses],
+  )
+  const plan = resolvedPlan?.plan
+  const planIsOwn = resolvedPlan?.isOwn ?? false
   const items = plan?.items ?? []
 
   const todayIndex = useMemo(() => {
@@ -215,7 +225,8 @@ export default function AnnualPlansPage() {
             <div className="relative min-h-11 w-full">
               <div className="flex items-center gap-2 overflow-x-auto min-w-0 pr-11 [scrollbar-width:thin]">
                 {sortedCourses.map((course) => {
-                  const hasPlan = !!course.annualPlan?.items.length
+                  const hasPlan = !!resolveAnnualPlanForCourse(sortedCourses, course)
+                  const hasOwnPlan = !!course.annualPlan?.items.length
                   const active = course.id === selectedId
                   return (
                     <button
@@ -225,7 +236,7 @@ export default function AnnualPlansPage() {
                         pendingWeekScroll.current = true
                         setSelectedId(course.id)
                       }}
-                      onContextMenu={(e) => openPlanContextMenu(e, course.id, hasPlan)}
+                      onContextMenu={(e) => openPlanContextMenu(e, course.id, hasOwnPlan)}
                       className={cn(
                         'shrink-0 text-left px-3 py-2 rounded-xl border text-sm transition-all',
                         active
@@ -248,7 +259,7 @@ export default function AnnualPlansPage() {
                 type="button"
                 onClick={triggerPlanUpload}
                 className={`absolute right-0 top-1/2 -translate-y-1/2 z-10 ${planAddButtonClass} transition-all duration-200 hover:-translate-y-[calc(50%+2px)] active:translate-y-[calc(-50%+2px)]`}
-                aria-label="Yıllık plan ekle"
+                aria-label="Yıllık plan ekle veya değiştir"
               >
                 <Plus size={24} strokeWidth={2.5} className="drop-shadow-md" />
               </button>
@@ -257,7 +268,12 @@ export default function AnnualPlansPage() {
 
           {items.length > 0 ? (
             <>
-              <div onContextMenu={(e) => selected && openPlanContextMenu(e, selected.id, true)}>
+              <div onContextMenu={(e) => selected && planIsOwn && openPlanContextMenu(e, selected.id, true)}>
+              {!planIsOwn && resolvedPlan && (
+                <p className="text-xs text-muted-foreground px-1 pb-1">
+                  Plan, {resolvedPlan.source.sinifAdi} sınıfına yüklenen planla paylaşılıyor.
+                </p>
+              )}
               <AnnualPlanBanner plan={plan} index={weekIndex} onIndexChange={setWeekIndex} />
               <div className="space-y-2 pb-4">
                 {items.map((row, i) => (

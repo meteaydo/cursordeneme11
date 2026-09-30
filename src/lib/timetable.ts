@@ -32,6 +32,19 @@ export function cellKey(dayIndex: number, period: number) {
   return `${dayIndex}-${period}`
 }
 
+/** TIMETABLE_DAYS indeksi (0=Pazartesi) → referans güne en yakın o günün ISO tarihi. */
+export function closestSchoolDateForDayIndex(dayIndex: number, ref = new Date()): string {
+  const d = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate())
+  let current = d.getDay()
+  if (current === 0) current = 7
+  const target = dayIndex + 1
+  let diff = target - current
+  if (diff > 3) diff -= 7
+  if (diff < -3) diff += 7
+  d.setDate(d.getDate() + diff)
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
 export type FillAxis = 'h' | 'v'
 
 export function fillEmptyCells(
@@ -121,6 +134,29 @@ export type BellSchedule = {
 
 export function bellScheduleFromDefaults(): BellSchedule {
   return { ...DEFAULT_TIMETABLE }
+}
+
+/** Öğle arası / gün sonu hariç, hemen önceki ders periyodu (blok içi). */
+export function previousLessonPeriodInSameBlock(
+  schedule: {
+    startTime: string
+    lessonMinutes: number
+    breakMinutes: number
+    lunchMinutes: number
+    lessonsPerDay: number
+  },
+  period: number,
+): number | null {
+  let lastLesson: number | null = null
+  for (const slot of buildDaySlots(schedule)) {
+    if (slot.kind === 'lunch') {
+      lastLesson = null
+      continue
+    }
+    if (slot.period === period) return lastLesson
+    lastLesson = slot.period
+  }
+  return null
 }
 
 export function findLessonPeriodForTime(schedule: BellSchedule, time: string): number | null {

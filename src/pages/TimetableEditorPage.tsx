@@ -41,6 +41,7 @@ import {
   cellKey,
   fillEmptyCells,
   findLessonPeriodForTime,
+  closestSchoolDateForDayIndex,
   type FillAxis,
 } from '@/lib/timetable'
 import type { Course } from '@/types'
@@ -881,8 +882,16 @@ export default function TimetableEditorPage() {
                                   const path = course.openSeatingByDefault
                                     ? `/courses/${course.id}/seating`
                                     : `/courses/${course.id}`
-                                  navigate(path, {
-                                    state: { courseName: course.dersAdi, className: course.sinifAdi },
+                                  const tarih = closestSchoolDateForDayIndex(dayIndex)
+                                  const saat = slot.start
+                                  const qs = new URLSearchParams({ tarih, saat })
+                                  navigate(`${path}?${qs}`, {
+                                    state: {
+                                      courseName: course.dersAdi,
+                                      className: course.sinifAdi,
+                                      tarih,
+                                      saat,
+                                    },
                                   })
                                   return
                                 }

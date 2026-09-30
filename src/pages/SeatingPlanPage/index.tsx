@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
 import { createPortal } from 'react-dom'
-import { useParams, useLocation, useNavigate } from 'react-router-dom'
+import { useParams, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 // @ts-ignore
 import { v4 as uuidv4 } from 'uuid'
 import { 
@@ -35,6 +35,7 @@ import { ChevronDown, Loader2, Save, RotateCcw, Plus, Undo2, Redo2, LayoutPanelT
 import { generateSeatingPlanExcel } from '@/services/excelSeatingService'
 import { useSharedSeatingPlans } from '@/hooks/useSharedSeatingPlans'
 import { cn, formatClassName, getScoreKameraFotolar, MAX_UYGULAMA_FOTO } from '@/lib/utils'
+import { normalizeTime } from '@/hooks/useClassAttendance'
 import { attendanceScoreFields, useCourseLessonSlot, visibleAttendanceMark } from '@/hooks/useCourseLessonSlot'
 
 
@@ -208,6 +209,7 @@ export function SeatingPlanPage() {
   const { courseId } = useParams<{ courseId: string }>()
   const location = useLocation()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const navState = location.state as { applicationId?: string; applicationAd?: string; tarih?: string; saat?: string } | null
   
   const { courses, updateCourse, loading: courseLoading } = useCourses()
@@ -216,9 +218,13 @@ export function SeatingPlanPage() {
 
   const course = courses.find((c) => c.id === courseId)
   const sinifAdi = formatClassName(course?.sinifAdi || '')
+  const urlTarih = searchParams.get('tarih')
+  const urlSaat = searchParams.get('saat')
   const lessonPin = navState?.tarih
-    ? { date: navState.tarih, time: navState.saat || '00:00' }
-    : null
+    ? { date: navState.tarih, time: normalizeTime(navState.saat || '00:00') }
+    : urlTarih && urlSaat
+      ? { date: urlTarih, time: normalizeTime(urlSaat) }
+      : null
   const lessonSlot = useCourseLessonSlot(sinifAdi, lessonPin, courseId)
 
   // -- STATE & REFS --
